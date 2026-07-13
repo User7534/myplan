@@ -2963,20 +2963,20 @@ function MyPlanApp() {
     }
   ), tab === "settings" && /* @__PURE__ */ React.createElement("div", { style: { padding: "14px", overflowY: "auto", flex: 1 } }, /* @__PURE__ */ React.createElement(DomainsSettings, { P, domains, onAdd: addDomain, onDelete: deleteDomain }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 20, paddingTop: 16, borderTop: "1px solid " + P.bd } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: P.hi, fontWeight: 700, letterSpacing: 1, marginBottom: 10 } }, "ACCOUNT"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: P.mu, marginBottom: 10 } }, session && (session.user && session.user.email || session.email)), /* @__PURE__ */ React.createElement(SBtn, { P, onClick: signOut }, "Sign Out")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 20, paddingTop: 16, borderTop: "1px solid " + P.bd } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: P.hi, fontWeight: 700, letterSpacing: 1, marginBottom: 10 } }, "PALETTE"), /* @__PURE__ */ React.createElement(SBtn, { P, onClick: function() {
     setPalOpen(true);
-  } }, "Change Color Theme")))), /* @__PURE__ */ React.createElement("div", { style: { background: P.panel, borderTop: "1px solid " + P.bd, display: "flex", flexShrink: 0, paddingBottom: "env(safe-area-inset-bottom,4px)" } }, tabs.map(function(t) {
+  } }, "Change Color Theme")))), /* @__PURE__ */ React.createElement("div", { style: { background: P.panel, borderTop: "1px solid " + P.bd, display: "flex", flexShrink: 0, paddingBottom: "max(env(safe-area-inset-bottom,16px),16px)" } }, tabs.map(function(t) {
     var active = tab === t.id;
     return /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t.id,
-        style: { flex: 1, border: "none", background: "transparent", padding: "10px 4px 8px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", rowGap: 3 },
+        style: { flex: 1, border: "none", background: "transparent", padding: "12px 4px 10px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", rowGap: 4, minHeight: 60 },
         onClick: function() {
           setTab(t.id);
         }
       },
-      /* @__PURE__ */ React.createElement("span", { style: { fontSize: 16, lineHeight: 1 } }, t.icon),
-      /* @__PURE__ */ React.createElement("span", { style: { fontSize: 9, fontWeight: active ? 700 : 500, color: active ? P.hi : P.dim } }, t.label),
-      active && /* @__PURE__ */ React.createElement("div", { style: { width: 16, height: 2, borderRadius: 1, background: P.hi, marginTop: 1 } })
+      /* @__PURE__ */ React.createElement("span", { style: { fontSize: 20, lineHeight: 1 } }, t.icon),
+      /* @__PURE__ */ React.createElement("span", { style: { fontSize: 10, fontWeight: active ? 700 : 500, color: active ? P.hi : P.dim } }, t.label),
+      active && /* @__PURE__ */ React.createElement("div", { style: { width: 20, height: 2, borderRadius: 1, background: P.hi } })
     );
   })), evModal && /* @__PURE__ */ React.createElement(EvModal, { P, mode: evModal.mode, init: evModal.form, lanes, cats, br, onSave: saveEv, onDelete: evModal.mode === "edit" ? delEv : null, onClose: function() {
     setEvModal(null);
