@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:#1e1c17; color:white; font-family:Arial,sans-serif; }
+    #root {
+      position:fixed; top:0; left:0; right:0;
+      display:flex; flex-direction:column;
+      background:#1e1c17;
+    }
+    #top { background:#2a3a5c; padding:16px; font-size:14px; flex-shrink:0; }
+    #middle { flex:1; display:flex; align-items:center; justify-content:center; }
+    #info { font-size:13px; line-height:2; color:#aaa; text-align:center; }
+    #nav {
+      position:fixed; bottom:0; left:0; right:0;
+      background:#C8A84B; display:flex;
+      padding-top:10px; padding-bottom:20px;
+    }
+    .tab { flex:1; text-align:center; font-size:13px; font-weight:bold; color:#000; padding:8px 4px; border:none; background:transparent; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div id="top">MyPlan — top bar</div>
+    <div id="middle"><div id="info">Loading...</div></div>
+  </div>
+  <div id="nav">
+    <button class="tab">Today</button>
+    <button class="tab">Calendar</button>
+    <button class="tab">Tasks</button>
+    <button class="tab">Routines</button>
+    <button class="tab">Settings</button>
+  </div>
+  <script>
+    function update() {
+      var vvh = window.visualViewport ? window.visualViewport.height : 'N/A';
+      var vvw = window.visualViewport ? window.visualViewport.width : 'N/A';
+      var wih = window.innerHeight;
+      var sh  = screen.height;
+      var root = document.getElementById('root');
+      root.style.height = (window.visualViewport ? window.visualViewport.height : window.innerHeight) + 'px';
+      document.getElementById('info').innerHTML =
+        'visualViewport.height: ' + vvh + 'px<br>' +
+        'window.innerHeight: ' + wih + 'px<br>' +
+        'screen.height: ' + sh + 'px<br>' +
+        'root.height: ' + root.style.height + '<br>' +
+        'orientation: ' + (window.screen.orientation ? window.screen.orientation.type : screen.width > screen.height ? 'landscape' : 'portrait');
+    }
+    update();
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', update);
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', function(){ setTimeout(update, 300); });
+  </script>
+</body>
+</html>
