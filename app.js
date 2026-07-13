@@ -2420,19 +2420,28 @@ function MyPlanApp() {
   var loadedRef = useRef(false);
   var saveTimerRef = useRef(null);
   useEffect(function() {
-    getSupa().auth.getSession().then(function(res) {
-      setSession(res.data.session || null);
+    var stored = getStoredSession();
+    if (!stored || !stored.access_token) {
       setAuthChecked(true);
-    });
-    var listener = getSupa().auth.onAuthStateChange(function(event, newSession) {
-      setSession(newSession || null);
-      if (!newSession) setAuthChecked(true);
-    });
-    return function() {
-      if (listener && listener.data && listener.data.subscription) {
-        listener.data.subscription.unsubscribe();
-      }
-    };
+      return;
+    }
+    if (stored.refresh_token) {
+      sbRefresh(stored.refresh_token).then(function(res) {
+        if (res.access_token) {
+          storeSession(res);
+          setSession(res);
+        } else {
+          storeSession(null);
+        }
+        setAuthChecked(true);
+      }).catch(function() {
+        setSession(stored);
+        setAuthChecked(true);
+      });
+    } else {
+      setSession(stored);
+      setAuthChecked(true);
+    }
   }, []);
   useEffect(function() {
     if (!session) return;
