@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head><title>MyPlan — Clear Cache</title>
+<style>
+  body { background:#1e1c17; color:#f0ece0; font-family:Arial,sans-serif; 
+         display:flex; align-items:center; justify-content:center; 
+         height:100vh; margin:0; flex-direction:column; gap:16px; }
+  button { background:#8aaa7c; color:#1e1c17; border:none; padding:12px 24px;
+           font-size:14px; font-weight:700; border-radius:4px; cursor:pointer; }
+  #status { font-size:12px; color:#a89e80; max-width:300px; text-align:center; }
+</style>
+</head>
+<body>
+  <div style="font-size:20px;font-weight:700;color:#8aaa7c;">MyPlan</div>
+  <div id="status">Clearing old cache and service workers…</div>
+  <button onclick="goHome()">Go to App</button>
+  <script>
+    async function clearAll() {
+      var status = document.getElementById('status');
+      try {
+        // Unregister all service workers
+        if ('serviceWorker' in navigator) {
+          var regs = await navigator.serviceWorker.getRegistrations();
+          for (var r of regs) { await r.unregister(); }
+          status.textContent = 'Unregistered ' + regs.length + ' service worker(s).';
+        }
+        // Clear all caches
+        if ('caches' in window) {
+          var keys = await caches.keys();
+          for (var k of keys) { await caches.delete(k); }
+          status.textContent += ' Cleared ' + keys.length + ' cache(s). Ready!';
+        }
+      } catch(e) {
+        status.textContent = 'Done (some items may not have cleared).';
+      }
+    }
+    function goHome() { window.location.href = '/'; }
+    clearAll();
+  </script>
+</body>
+</html>

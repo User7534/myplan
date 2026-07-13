@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background: deep stone -->
+  <rect width="512" height="512" rx="96" fill="#1e1c17"/>
+  <!-- Subtle earth texture ring -->
+  <circle cx="256" cy="256" r="210" fill="none" stroke="#35321f" stroke-width="2"/>
+  <!-- Horizon line — the signature earthy element -->
+  <line x1="96" y1="310" x2="416" y2="310" stroke="#4a4728" stroke-width="2"/>
+  <!-- M mark — clean, grounded, generous weight -->
+  <path
+    d="M 128 370 L 128 180 L 256 290 L 384 180 L 384 370"
+    fill="none"
+    stroke="#8aaa7c"
+    stroke-width="28"
+    stroke-linejoin="round"
+    stroke-linecap="round"
+  />
+  <!-- Accent dot — the same dot used in the app header -->
+  <circle cx="256" cy="148" r="12" fill="#8aaa7c"/>
+</svg>
