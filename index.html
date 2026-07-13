@@ -84,12 +84,16 @@
   <script>
     function setVH() {
       var h = window.innerHeight;
-      document.getElementById('root').style.height = h + 'px';
+      var root = document.getElementById('root');
+      if (root) {
+        root.style.height = h + 'px';
+        root.style.top = '0px';
+      }
     }
     setVH();
     window.addEventListener('resize', setVH);
     window.addEventListener('orientationchange', function() {
-      setTimeout(setVH, 200);
+      setTimeout(setVH, 300);
     });
   </script>
 
