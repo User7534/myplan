@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      background: #1e1c17;
+      color: white;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      height: 100dvh;
+    }
+    #top {
+      background: #2a3a5c;
+      padding: 12px;
+      padding-top: max(12px, env(safe-area-inset-top));
+      flex-shrink: 0;
+      font-size: 14px;
+    }
+    #middle {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: #888;
+    }
+    #nav {
+      background: #C8A84B;
+      color: #000;
+      display: flex;
+      flex-shrink: 0;
+      padding-bottom: max(20px, env(safe-area-inset-bottom));
+    }
+    .tab {
+      flex: 1;
+      padding: 14px 4px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: bold;
+      border: none;
+      background: transparent;
+      color: #000;
+    }
+  </style>
+</head>
+<body>
+  <div id="top">MyPlan — top bar</div>
+  <div id="middle">
+    <div>
+      <p>Safe area top: <span id="sat">?</span></p>
+      <p>Safe area bottom: <span id="sab">?</span></p>
+      <p>Window height: <span id="wh">?</span></p>
+      <p>Screen height: <span id="sh">?</span></p>
+    </div>
+  </div>
+  <div id="nav">
+    <button class="tab">Today</button>
+    <button class="tab">Calendar</button>
+    <button class="tab">Tasks</button>
+    <button class="tab">Routines</button>
+    <button class="tab">Settings</button>
+  </div>
+  <script>
+    document.getElementById('wh').textContent = window.innerHeight + 'px';
+    document.getElementById('sh').textContent = screen.height + 'px';
+    var styles = getComputedStyle(document.documentElement);
+    document.getElementById('sat').textContent = styles.getPropertyValue('--sat') || 'env not supported';
+    document.getElementById('sab').textContent = styles.getPropertyValue('--sab') || 'env not supported';
+  </script>
+</body>
+</html>
