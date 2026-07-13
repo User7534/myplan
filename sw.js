@@ -1,5 +1,5 @@
 // MyPlan Service Worker v3 — aggressive install, cache-first for shell
-var CACHE = "myplan-v3";
+var CACHE = "myplan-v4";
 
 var SHELL = [
   "/",
