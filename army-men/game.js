@@ -136,6 +136,7 @@ const WEAP = {
   t_heli:    { cd: 0.9, dmg: 22, spd: 480, range: 380, splash: 40, kind: 'rocket', snd: 'rocket' },
   t_flamer:  { cd: 0.08, dmg: 2.6, spd: 290, range: 160, life: 0.5, spread: 0.25, kind: 'flame', snd: 'flame' },
   t_pguns:   { cd: 0.12, dmg: 6, spd: 820, range: 380, spread: 0.08, kind: 'bullet', snd: 'tshot' },
+  t_mega:    { cd: 1.3, dmg: 70, spd: 450, range: 480, splash: 90, kind: 'shell', snd: 'cannon' },
   t_mg:      { cd: 0.45, dmg: 6, spd: 560, range: 330, spread: 0.12, kind: 'bullet', snd: 'tshot' },
   b_rocket:  { cd: 0, dmg: 40, spd: 330, range: 700, splash: 70, kind: 'rocket', snd: 'rocket' },
   b_orb:     { cd: 0, dmg: 10, spd: 300, range: 700, kind: 'orb', snd: 'tshot' },
@@ -165,6 +166,8 @@ const TYPES = {
   t_tank:   { team: 't', hp: 420, speed: 55, r: 22, weapon: 't_cannon', sight: 420, bounty: 60, vehicle: true, kind: 'tank' },
   t_heli:   { team: 't', hp: 260, speed: 120, r: 20, weapon: 't_heli', sight: 420, bounty: 70, vehicle: true, air: true, kind: 'heli' },
   bunker:   { team: 't', hp: 800, r: 42, building: true, weapon: 't_mg', sight: 330, bounty: 120 },
+  megatank: { team: 't', hp: 2600, speed: 45, r: 38, weapon: 't_mega', sight: 520, bounty: 300, vehicle: true, kind: 'tank', title: 'MEGA TANK' },
+  t_bomber: { team: 't', hp: 1500, speed: 200, r: 34, weapon: 't_pguns', sight: 650, bounty: 300, vehicle: true, air: true, kind: 'plane', title: 'SNOW HAWK BOMBER' },
   boss:     { team: 't', hp: 4200, speed: 75, r: 34, weapon: 't_mg', sight: 650, bounty: 500 },
 };
 const RECRUITS = ['rifle', 'bazooka', 'flamer', 'medic', 'sniper', 'mortar', 'engineer', 'jeep', 'gtank', 'gheli', 'gplane'];
@@ -508,6 +511,9 @@ LEVELS.forEach((L, i) => {
   if (i >= 4) L.mix.push(['t_plane', 0.05]);
 });
 [0, 5, 6].forEach(i => { LEVELS[i].river = true; });
+// mini-bosses: must be destroyed to win the mission
+LEVELS[3].mini = { type: 'megatank', at: [0.88, 0.5], note: 'A MEGA TANK guards the far bunker.' };
+LEVELS[7].mini = { type: 't_bomber', at: [0.92, 0.3], note: 'The SNOW HAWK bomber is hunting your base!' };
 
 const START_CARRY = (idx = 0) => ({
   plastic: DIFF().plastic + idx * 120,
@@ -579,10 +585,16 @@ function newLevel(idx) {
     const bx = L.boss[0] * WORLD_W, by = L.boss[1] * WORLD_H;
     G.boss = spawn('boss', bx, by, { home: { x: bx, y: by }, shield: true, phaseT: 4, attack: null, atkT: 0, charge: 0 });
   }
+  G.minis = [];
+  if (L.mini) {
+    const mx = L.mini.at[0] * WORLD_W, my = L.mini.at[1] * WORLD_H;
+    const m = spawn(L.mini.type, mx, my, { home: { x: mx, y: my }, miniboss: true, raider: L.mini.type === 't_bomber', wanderT: 0, wx: mx, wy: my, cd2: 0 });
+    G.minis.push(m);
+  }
   genObstacles(rng, L);
   G.ground = renderGround(L.theme, rng);
   G.cam.x = G.sarge.x; G.cam.y = G.sarge.y;
-  banner(L.name, L.brief, 4.5);
+  banner(L.name, L.mini ? L.brief + ' ' + L.mini.note : L.brief, 5);
   commandMode = false; moveStick = aimStick = null;
   state = 'play';
 }
@@ -1119,6 +1131,7 @@ function kill(u, owner) {
     else if (G.boss && !G.boss.dead) { G.boss.shield = false; banner('SHIELD DOWN!', 'The Tan Overlord is vulnerable. Take him out!', 3.5); sfx('alarm'); }
   }
   if (u.type === 'boss') banner('THE OVERLORD HAS FALLEN!', 'Plastic justice is served.', 4);
+  if (u.miniboss) banner(u.T.title + ' DESTROYED!', 'Giant down.', 3.5);
   if (u === G.sarge) {
     G.sargeDowned = true;
     G.lives--;
@@ -1411,7 +1424,8 @@ function dropBomb(u) {
   sfx('throw', u.x, u.y);
 }
 function bombTargetBelow(u) {
-  for (const o of G.units) if (!o.dead && o.team !== u.team && (o.T.building || (o.T.vehicle && !o.T.air)) && dist(o, u) < 90 + o.r) return o;
+  const any = u.type === 't_bomber';
+  for (const o of G.units) if (!o.dead && o.team !== u.team && !o.T.air && (any || o.T.building || o.T.vehicle) && dist(o, u) < (any ? 120 : 90) + o.r) return o;
   return null;
 }
 function planeAI(u, dt) {
@@ -1436,7 +1450,7 @@ function planeAI(u, dt) {
   u.ta = u.a;
   if (u.target && d < W.range && Math.abs(lerpAngle(u.a, toGoal, 1) - u.a) < 0.35 && u.cd <= 0) { fire(u, u.T.weapon, goal.x, goal.y); u.cd = W.cd; }
   u.bombCd = (u.bombCd || 0) - dt;
-  if (u.bombCd <= 0 && bombTargetBelow(u)) { dropBomb(u); u.bombCd = 2.2; }
+  if (u.bombCd <= 0 && bombTargetBelow(u)) { dropBomb(u); u.bombCd = u.type === 't_bomber' ? 0.45 : 2.2; }
 }
 
 function controlVehicle(v, dt) {
@@ -1589,7 +1603,7 @@ function update(dt) {
   if (G.banner) { G.banner.t -= dt; if (G.banner.t <= 0) G.banner = null; }
 
   // win / lose
-  if (!G.result && G.bunkers.every(b => b.dead) && (!G.boss || G.boss.dead)) { G.result = 'win'; G.endT = 2.5; }
+  if (!G.result && G.bunkers.every(b => b.dead) && (!G.boss || G.boss.dead) && G.minis.every(m => m.dead)) { G.result = 'win'; G.endT = 2.5; }
   if (G.result) {
     G.endT -= dt;
     if (G.endT <= 0) {
@@ -1739,6 +1753,10 @@ function medicAI(u, dt) {
 
 function tanAI(u, dt) {
   if (u.T.kind === 'plane') return planeAI(u, dt);
+  if (u.type === 'megatank' && u.target && !u.target.dead && dist(u, u.target) < 340) {
+    u.cd2 -= dt;
+    if (u.cd2 <= 0) { fire(u, 't_mg', u.target.x + rand(-6, 6), u.target.y + rand(-6, 6)); u.cd2 = 0.18; }
+  }
   const W = WEAP[u.T.weapon];
   if (!u.home) { u.home = { x: u.x, y: u.y }; u.wanderT = 0; }
   u.retarget -= dt;
@@ -2662,7 +2680,16 @@ function drawHUD() {
   ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1;
   ctx.strokeRect(mm.x + (G.cam.x - VW / 2 / Z) * sx, mm.y + (G.cam.y - VH / 2 / Z) * sy, VW / Z * sx, VH / Z * sy);
 
-  // boss bar
+  // boss bar (Overlord, or a living mini-boss)
+  const mini = !(G.boss && !G.boss.dead) && G.minis.find(m => !m.dead);
+  if (mini) {
+    const room = LW - 680;
+    const w = room > 200 ? Math.min(460, room) : Math.min(460, LW * 0.5), x = LW / 2 - w / 2, y = room > 200 ? 18 : 84;
+    panel(x - 10, y - 6, w + 20, 46);
+    txt(mini.T.title, LW / 2, y + 12, 13, '#ffcf33', 'center');
+    ctx.fillStyle = '#300'; ctx.fillRect(x, y + 20, w, 12);
+    ctx.fillStyle = '#d43a2a'; ctx.fillRect(x, y + 20, w * mini.hp / mini.maxHp, 12);
+  }
   if (G.boss && !G.boss.dead) {
     const room = LW - 680;
     const w = room > 200 ? Math.min(460, room) : Math.min(460, LW * 0.5), x = LW / 2 - w / 2, y = room > 200 ? 18 : 84;

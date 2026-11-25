@@ -595,15 +595,15 @@ function render(dt) {
     } else if (T.vehicle) {
       const k = T.kind, tm = u.team;
       if (k === 'tank') {
-        pool('tank' + tm, () => tankHullGeo(tm, T.r)).add(place(u.x, 0, u.y, u.a), flash);
-        pool('turret' + tm, () => tankTurretGeo(tm, T.r)).add(place(u.x, 0, u.y, u.ta), flash);
+        pool('tank' + tm + T.r, () => tankHullGeo(tm, T.r)).add(place(u.x, 0, u.y, u.a), flash);
+        pool('turret' + tm + T.r, () => tankTurretGeo(tm, T.r)).add(place(u.x, 0, u.y, u.ta), flash);
       } else if (k === 'plane') {
         // bank into turns: roll follows the turn rate
         const prev = u._pa ?? u.a; u._pa = u.a;
         const turn = (((u.a - prev + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
         u._roll = (u._roll || 0) * 0.9 + clamp(turn / Math.max(dt, 1e-3) * 0.35, -0.9, 0.9) * 0.1;
         Q.setFromEuler(_e.set(u._roll, -u.a, 0, 'YXZ'));
-        pool('plane' + tm, () => planeGeo(tm, T.r)).add(M.compose(POS.set(u.x, 115, u.y), Q, SCL.set(1.2, 1.2, 1.2)), flash);
+        pool('plane' + tm + T.r, () => planeGeo(tm, T.r)).add(M.compose(POS.set(u.x, 115, u.y), Q, SCL.set(1.2, 1.2, 1.2)), flash);
         const nose = 1.5 * T.r * 1.2;
         pool('propblur', () => merge([part(cyl(0.85 * T.r, 0.85 * T.r, 0.01, 28), '#fff', { rz: Math.PI / 2 })]), blurMat, { shadow: false }).add(M.compose(POS.set(u.x + Math.cos(u.a) * nose, 115, u.y + Math.sin(u.a) * nose), Q, SCL.set(1.2, 1.2, 1.2)), WHITE);
       } else if (k === 'jeep') {
