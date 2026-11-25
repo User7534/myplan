@@ -525,7 +525,7 @@ function genObstacles(rng, L) {
       const cx = clamp(p.x, o.x, o.x + o.w), cy = clamp(p.y, o.y, o.y + o.h);
       if (Math.hypot(p.x - cx, p.y - cy) < p.r) return false;
     }
-    if (G.river) for (const q of G.river.segs) if (o.x < q.x + q.w + 40 && o.x + o.w + 40 > q.x && o.y < q.y + q.h && o.y + o.h > q.y) return false;
+    if (G.river) for (const yy of [o.y, o.y + o.h / 2, o.y + o.h]) { const p = riverAt(yy); if (o.x < p.x + p.hw + 45 && o.x + o.w > p.x - p.hw - 45) return false; }
     for (const q of G.obs) {
       if (o.x < q.x + q.w + 50 && o.x + o.w + 50 > q.x && o.y < q.y + q.h + 50 && o.y + o.h + 50 > q.y) return false;
     }
@@ -542,9 +542,18 @@ function genObstacles(rng, L) {
       const seg = { kind: 'water', x: x - wid / 2, y: i * segH, w: wid, h: Math.min(segH, WORLD_H - i * segH), hp: null, ford: fords.has(i), bridged: false };
       for (const p of protect) { const cx = clamp(p.x, seg.x, seg.x + seg.w), cy = clamp(p.y, seg.y, seg.y + seg.h); if (Math.hypot(p.x - cx, p.y - cy) < p.r) seg.ford = true; }
       segs.push(seg);
-      if (!seg.ford) G.obs.push(seg);
     }
-    G.river = { segs, segH, wid };
+    // smooth, organic course: Catmull-Rom through the segment centres plus a gentle wiggle; width breathes
+    const step = 20, pts = [], ph = rng() * 6, ph2 = rng() * 6;
+    const cxs = segs.map(sg => sg.x + sg.w / 2), P = k => cxs[clamp(k, 0, cxs.length - 1)];
+    for (let y = 0; y <= WORLD_H + step; y += step) {
+      const f = y / segH - 0.5, i = Math.floor(f), t = f - i;
+      const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+      const x = 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t) + 18 * Math.sin(y / 150 + ph);
+      const hw = wid / 2 * (0.86 + 0.12 * Math.sin(y / 240 + ph2) + 0.07 * Math.sin(y / 87 + ph));
+      pts.push({ x, y, hw });
+    }
+    G.river = { segs, segH, wid, step, pts };
   }
   let tries = 0, placed = 0;
   while (placed < L.obstacles && tries < 9000) {
@@ -593,6 +602,7 @@ function genObstacles(rng, L) {
       const cx = b.x + Math.cos(a) * 125, cy = b.y + Math.sin(a) * 125;
       const vert = Math.abs(Math.cos(a)) > 0.6;
       const w = vert ? 28 : 90, h = vert ? 90 : 28;
+      if (G.river) { const p = riverAt(cy); if (Math.abs(cx - p.x) < p.hw + 60) continue; }
       G.obs.push({ kind: 'sandbag', x: cx - w / 2, y: cy - h / 2, w, h, hp: 180, maxHp: 180, seed: Math.random() });
     }
   }
@@ -738,6 +748,18 @@ function renderGround(theme, rng) {
     }
     for (let i = 0; i < 5000 * k; i++) { g.fillStyle = rng() < 0.5 ? 'rgba(255,240,200,0.5)' : 'rgba(120,90,50,0.4)'; g.fillRect(rng() * WORLD_W, rng() * WORLD_H, 2, 2); }
   }
+  if (G.river) { // damp, darker soil along both banks so the water sits in the land
+    const band = (extra, col) => {
+      g.fillStyle = col; g.beginPath();
+      const pts = G.river.pts;
+      pts.forEach((p, i) => i ? g.lineTo(p.x - p.hw - extra, p.y) : g.moveTo(p.x - p.hw - extra, p.y));
+      for (let i = pts.length - 1; i >= 0; i--) g.lineTo(pts[i].x + pts[i].hw + extra, pts[i].y);
+      g.closePath(); g.fill();
+    };
+    const mud = { grass: ['rgba(70,60,30,0.28)', 'rgba(95,75,45,0.6)'], mountain: ['rgba(60,55,40,0.3)', 'rgba(90,80,60,0.6)'], tundra: ['rgba(70,65,45,0.3)', 'rgba(105,95,70,0.6)'] }[theme] || ['rgba(70,60,30,0.28)', 'rgba(95,75,45,0.6)'];
+    band(46, mud[0]); band(16, mud[1]);
+    for (let i = 0; i < G.river.pts.length; i += 2) { const p = G.river.pts[i]; for (const side of [-1, 1]) { g.fillStyle = rng() < 0.5 ? 'rgba(140,130,110,0.6)' : 'rgba(60,50,35,0.5)'; g.beginPath(); g.ellipse(p.x + side * (p.hw + 6 + rng() * 14), p.y + rng() * 20, 3 + rng() * 5, 2 + rng() * 4, rng() * 3, 0, TAU); g.fill(); } }
+  }
   // the "edge of the battlefield"
   g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 24; g.strokeRect(0, 0, WORLD_W, WORLD_H);
   return c;
@@ -779,18 +801,38 @@ function collideObs(u) {
       }
     }
   }
+  if (G.river && !u.T.air) {
+    const sg = riverSegFor(u.y);
+    if (!sg.ford && !sg.bridged) {
+      const RV = G.river, i = Math.round(u.y / RV.step);
+      let best = null, bd = Infinity;
+      for (let k = i - 3; k <= i + 3; k++) { const p = RV.pts[k]; if (!p) continue; const d = Math.hypot(u.x - p.x, u.y - p.y) - p.hw; if (d < bd) { bd = d; best = p; } }
+      if (best && bd < u.r) {
+        let nx = u.x - best.x, ny = u.y - best.y, l = Math.hypot(nx, ny);
+        if (l < 1e-3) { nx = 1; ny = 0; l = 1; }
+        u.x = best.x + nx / l * (best.hw + u.r); u.y = best.y + ny / l * (best.hw + u.r);
+      }
+    }
+  }
   u.x = clamp(u.x, u.r + 6, WORLD_W - u.r - 6); u.y = clamp(u.y, u.r + 6, WORLD_H - u.r - 6);
 }
-function riverX(y) { const R = G.river, s = R.segs[clamp(Math.floor(y / R.segH), 0, R.segs.length - 1)]; return s.x + s.w / 2; }
+// river centre and half-width at a given y (linear between 20px samples)
+function riverAt(y) {
+  const R = G.river, f = clamp(y / R.step, 0, R.pts.length - 1.001), i = Math.floor(f), t = f - i, a = R.pts[i], b = R.pts[i + 1];
+  return { x: a.x + (b.x - a.x) * t, hw: a.hw + (b.hw - a.hw) * t };
+}
+function riverX(y) { return riverAt(y).x; }
+function riverSegFor(y) { const R = G.river; return R.segs[clamp(Math.floor(y / R.segH), 0, R.segs.length - 1)]; }
+function riverTangent(y) { const a = riverAt(y - 20), b = riverAt(y + 20); return Math.atan2(40, b.x - a.x); }
 function riverRedirect(u, tx, ty) {
   const R = G.river, su = Math.sign(u.x - riverX(u.y)), st = Math.sign(tx - riverX(ty));
   if (su === st || !su || !st) return null;
   let best = null, bd = Infinity;
   for (const s of R.segs) { if (!(s.ford || s.bridged)) continue; const cy = s.y + s.h / 2, d = Math.abs(cy - u.y) + Math.abs(cy - ty); if (d < bd) { bd = d; best = s; } }
   if (!best) return null;
-  const cx = best.x + best.w / 2, cy = best.y + best.h / 2;
-  if (Math.abs(u.y - cy) < best.h / 2 - 22) return { x: cx + st * R.wid, y: cy };   // in the crossing lane: go across
-  return { x: cx + su * R.wid, y: cy };                                              // walk to the near bank first
+  const cy = best.y + best.h / 2, c = riverAt(cy), off = c.hw + 70;
+  if (Math.abs(u.y - cy) < best.h / 2 - 22) return { x: c.x + st * off, y: cy };   // in the crossing lane: go across
+  return { x: c.x + su * off, y: cy };                                             // walk to the near bank first
 }
 function steer(u, tx, ty, dt, sp) {
   if (G.river && !u.T.air) { const r = riverRedirect(u, tx, ty); if (r) { tx = r.x; ty = r.y; } }
@@ -982,7 +1024,7 @@ function toggleBuild(on) {
   commandMode = false;
   sfx('order');
 }
-function riverSegAt(x, y) { if (!G.river) return null; for (const s of G.river.segs) if (inRect(x, y, s)) return s; return null; }
+function riverSegAt(x, y) { if (!G.river || y < 0 || y > WORLD_H) return null; const p = riverAt(y); return Math.abs(x - p.x) < p.hw + 12 ? riverSegFor(y) : null; }
 function buildCheck(S, x, y) {
   if (!squad().some(u => u.type === 'engineer')) return 'Recruit an Engineer first (' + (touchMode || padMode ? 'recruit list' : 'R') + ')';
   if (G.plastic < S.cost) return 'Need ' + S.cost + ' plastic for a ' + S.name;
@@ -1001,9 +1043,10 @@ function placeBuild(x, y) {
   const job = { id: S.id, name: S.name, x, y, vert: Math.abs(x - from.x) > Math.abs(y - from.y), progress: 0, need: S.time, eng: null };
   if (S.id === 'bridge') {
     const seg = riverSegAt(x, y);
-    job.seg = seg; job.x = seg.x + seg.w / 2; job.y = seg.y + seg.h / 2;
+    job.y = seg.y + seg.h / 2; const c = riverAt(job.y);
+    job.seg = seg; job.x = c.x;
     const side = Math.sign(from.x - job.x) || -1;
-    job.wx = job.x + side * (seg.w / 2 + 24); job.wy = job.y;  // engineers work from the bank
+    job.wx = job.x + side * (c.hw + 26); job.wy = job.y;  // engineers work from the bank
   } else { job.wx = x; job.wy = y; }
   G.jobs.push(job);
   G.pings.push({ x: job.x, y: job.y, t: 0.6, col: '#ffd76a' });
@@ -1039,7 +1082,7 @@ function completeJob(j) {
   } else if (j.id === 'mines') {
     for (let i = 0; i < 7; i++) { const a = i / 6 * TAU, r = i ? 46 : 0; G.mines.push({ x: j.x + Math.cos(a) * r, y: j.y + Math.sin(a) * r, team: 'g', arm: 1, dmg: 130, splash: 90 }); }
   } else if (j.id === 'bridge') {
-    j.seg.bridged = true; j.seg.dead = true;
+    j.seg.bridged = true;
   }
   for (const u of G.units) if (!u.T.air && !u.T.building && dist(u, j) < 80) collideObs(u);
   floatText(j.x, j.y - 30, j.name + ' built!', '#bff27a');
@@ -1876,7 +1919,6 @@ function drawObstacle(o) {
   const fl = o.flash > 0;
   ctx.save();
   if (o.kind !== 'water') { ctx.fillStyle = 'rgba(0,0,0,0.25)'; rrect(o.x + 6, o.y + 8, o.w, o.h, 6); ctx.fill(); }
-  if (o.kind === 'water') { drawWater(o); ctx.restore(); return; }
   if (o.kind === 'block') {
     ctx.fillStyle = shade(o.color, -0.3); rrect(o.x, o.y + 6, o.w, o.h, 4); ctx.fill();
     ctx.fillStyle = fl ? '#fff' : o.color; rrect(o.x, o.y, o.w, o.h, 4); ctx.fill();
@@ -1985,28 +2027,50 @@ function drawObstacle(o) {
   }
   ctx.restore();
 }
-function drawWater(o) {
-  const grd = ctx.createLinearGradient(o.x, 0, o.x + o.w, 0);
-  grd.addColorStop(0, '#2f6f8f'); grd.addColorStop(0.5, '#3f8fb4'); grd.addColorStop(1, '#2f6f8f');
-  ctx.fillStyle = grd; ctx.fillRect(o.x, o.y, o.w, o.h);
-  ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 2;
-  const t = G ? G.time : 0;
-  for (let i = 0; i < 4; i++) { const y = o.y + ((i * 41 + t * 30) % o.h); ctx.beginPath(); ctx.moveTo(o.x + 20 + i * 18, y); ctx.quadraticCurveTo(o.x + o.w / 2, y - 6, o.x + o.w - 20, y); ctx.stroke(); }
+function riverPoly(pts, from, to, inset = 0, taper = false) {
+  const w = (p, i) => (p.hw - inset) * (taper ? Math.pow(Math.sin(Math.PI * (i - from) / Math.max(1, to - from)), 0.5) : 1);
+  ctx.beginPath();
+  for (let i = from; i <= to; i++) { const p = pts[i]; i === from ? ctx.moveTo(p.x - w(p, i), p.y) : ctx.lineTo(p.x - w(p, i), p.y); }
+  for (let i = to; i >= from; i--) { const p = pts[i]; ctx.lineTo(p.x + w(p, i), p.y); }
+  ctx.closePath();
 }
 function drawRiverExtras(vis) {
   if (!G.river) return;
-  for (const sgm of G.river.segs) {
-    if (!vis(sgm.x, sgm.y, 200)) continue;
-    if (sgm.ford) { // shallow ford with stepping stones
-      ctx.fillStyle = 'rgba(80,150,180,0.45)'; ctx.fillRect(sgm.x, sgm.y, sgm.w, sgm.h);
-      ctx.fillStyle = '#8d8a80'; for (let i = 0; i < 9; i++) circle(sgm.x + 15 + (i * 53) % (sgm.w - 30), sgm.y + 20 + (i * 37) % (sgm.h - 40), 9);
-    } else if (sgm.bridged) {
-      drawWater(sgm);
-      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(sgm.x - 22, sgm.y + sgm.h / 2 - 34, sgm.w + 44, 76);
-      ctx.fillStyle = '#9a6b3c'; ctx.fillRect(sgm.x - 26, sgm.y + sgm.h / 2 - 40, sgm.w + 52, 80);
+  const R = G.river, pts = R.pts, t = G.time;
+  const y0 = G.cam.y - VH / 2 / Z - 120, y1 = G.cam.y + VH / 2 / Z + 120;
+  const from = clamp(Math.floor(y0 / R.step), 0, pts.length - 1), to = clamp(Math.ceil(y1 / R.step), 0, pts.length - 1);
+  if (!vis(pts[from].x, G.cam.y, 2000)) return;
+  // water body: pale edge, deeper middle
+  riverPoly(pts, from, to); ctx.fillStyle = '#5aa6c6'; ctx.fill();
+  riverPoly(pts, from, to, 14); ctx.fillStyle = '#3c8bb0'; ctx.fill();
+  riverPoly(pts, from, to, 34); ctx.fillStyle = '#2f7aa0'; ctx.fill();
+  // drifting ripples that follow the current
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.lineWidth = 2;
+  for (let k = 0; k < (to - from) / 3; k++) {
+    const yy = from * R.step + ((k * 61 + t * 28) % ((to - from) * R.step)), c = riverAt(yy), off = Math.sin(k * 2.3) * c.hw * 0.45;
+    const a2 = riverTangent(yy) + Math.PI / 2, len = 18 + (k % 3) * 8;
+    ctx.beginPath(); ctx.moveTo(c.x + off - Math.cos(a2) * len, yy - Math.sin(a2) * len); ctx.quadraticCurveTo(c.x + off, yy - 5, c.x + off + Math.cos(a2) * len, yy + Math.sin(a2) * len); ctx.stroke();
+  }
+  // bank highlight
+  ctx.strokeStyle = 'rgba(230,245,250,0.35)'; ctx.lineWidth = 3;
+  for (const side of [-1, 1]) { ctx.beginPath(); for (let i = from; i <= to; i++) { const p = pts[i]; i === from ? ctx.moveTo(p.x + side * (p.hw - 3), p.y) : ctx.lineTo(p.x + side * (p.hw - 3), p.y); } ctx.stroke(); }
+  for (const sg of R.segs) {
+    const cy = sg.y + sg.h / 2;
+    if (cy < y0 - 200 || cy > y1 + 200) continue;
+    if (sg.ford) { // shallow ford: sandy bottom showing through, stepping stones
+      const a = clamp(Math.floor((sg.y - 30) / R.step), 0, pts.length - 1), b = clamp(Math.ceil((sg.y + sg.h + 30) / R.step), 0, pts.length - 1);
+      riverPoly(pts, a, b, 4, true); ctx.fillStyle = 'rgba(205,190,140,0.32)'; ctx.fill();
+      riverPoly(pts, a + 2, b - 2, 12, true); ctx.fillStyle = 'rgba(205,190,140,0.3)'; ctx.fill();
+      for (let i = 0; i < 10; i++) { const yy = sg.y + 12 + (i * 37) % (sg.h - 24), c = riverAt(yy), x = c.x + ((i * 53) % 100 - 50) / 50 * c.hw * 0.7; ctx.fillStyle = 'rgba(0,0,0,0.25)'; ellipse(x + 2, yy + 3, 10, 7); ctx.fillStyle = '#9a968a'; ellipse(x, yy, 10, 7); }
+    } else if (sg.bridged) {
+      const c = riverAt(cy), ang = riverTangent(cy) + Math.PI / 2, L = c.hw * 2 + 60;
+      ctx.save(); ctx.translate(c.x, cy); ctx.rotate(ang);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(-L / 2 + 6, -34, L, 76);
+      ctx.fillStyle = '#9a6b3c'; ctx.fillRect(-L / 2, -40, L, 80);
       ctx.strokeStyle = '#6e4720'; ctx.lineWidth = 2;
-      for (let x = sgm.x - 26; x < sgm.x + sgm.w + 26; x += 14) { ctx.beginPath(); ctx.moveTo(x, sgm.y + sgm.h / 2 - 40); ctx.lineTo(x, sgm.y + sgm.h / 2 + 40); ctx.stroke(); }
-      ctx.fillStyle = '#6e4720'; ctx.fillRect(sgm.x - 26, sgm.y + sgm.h / 2 - 44, sgm.w + 52, 5); ctx.fillRect(sgm.x - 26, sgm.y + sgm.h / 2 + 39, sgm.w + 52, 5);
+      for (let x = -L / 2; x < L / 2; x += 14) { ctx.beginPath(); ctx.moveTo(x, -40); ctx.lineTo(x, 40); ctx.stroke(); }
+      ctx.fillStyle = '#6e4720'; ctx.fillRect(-L / 2, -44, L, 5); ctx.fillRect(-L / 2, 39, L, 5);
+      ctx.restore();
     }
   }
 }
@@ -2125,7 +2189,7 @@ function drawWorld() {
   for (const j of G.jobs) drawBlueprint(j.id, j.x, j.y, j.vert, true, j.progress / j.need);
   if (G.buildMode) {
     const p = buildPreviewPoint();
-    if (p) { const S = STRUCTS[G.buildIdx], from = G.sarge.driving || G.sarge; let { x, y } = p; const seg = S.id === 'bridge' && riverSegAt(x, y); if (seg) { x = seg.x + seg.w / 2; y = seg.y + seg.h / 2; } drawBlueprint(S.id, x, y, Math.abs(p.x - from.x) > Math.abs(p.y - from.y), !buildCheck(S, p.x, p.y)); }
+    if (p) { const S = STRUCTS[G.buildIdx], from = G.sarge.driving || G.sarge; let { x, y } = p; const seg = S.id === 'bridge' && riverSegAt(x, y); if (seg) { y = seg.y + seg.h / 2; x = riverAt(y).x; } drawBlueprint(S.id, x, y, Math.abs(p.x - from.x) > Math.abs(p.y - from.y), !buildCheck(S, p.x, p.y)); }
   }
 
   // units sorted by y for a bit of depth; aircraft drawn on top
@@ -2384,8 +2448,12 @@ function drawHUD() {
   ctx.fillStyle = { grass: '#3f6a28', tile: '#9c917a', concrete: '#6e6f6a', sand: '#b39a66', carpet: '#6b3228', bedroom: '#a8743f', desert: '#c27e3e', mountain: '#5c6648', tundra: '#7d7a5a', arctic: '#c9d6e0' }[G.L.theme];
   ctx.fillRect(mm.x, mm.y, mm.w, mm.h);
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  for (const o of G.obs) { ctx.fillStyle = o.kind === 'water' ? '#3f8fb4' : 'rgba(0,0,0,0.35)'; ctx.fillRect(mm.x + o.x * sx, mm.y + o.y * sy, Math.max(1.5, o.w * sx), Math.max(1.5, o.h * sy)); }
-  if (G.river) for (const g of G.river.segs) if (g.ford || g.bridged) { ctx.fillStyle = g.bridged ? '#9a6b3c' : 'rgba(63,143,180,0.5)'; ctx.fillRect(mm.x + g.x * sx, mm.y + g.y * sy, Math.max(1.5, g.w * sx), Math.max(1.5, g.h * sy)); }
+  for (const o of G.obs) ctx.fillRect(mm.x + o.x * sx, mm.y + o.y * sy, Math.max(1.5, o.w * sx), Math.max(1.5, o.h * sy));
+  if (G.river) {
+    ctx.strokeStyle = '#3f8fb4'; ctx.lineWidth = Math.max(2, G.river.wid * sx); ctx.lineJoin = 'round'; ctx.beginPath();
+    G.river.pts.forEach((p, i) => i ? ctx.lineTo(mm.x + p.x * sx, mm.y + p.y * sy) : ctx.moveTo(mm.x + p.x * sx, mm.y + p.y * sy)); ctx.stroke();
+    for (const g of G.river.segs) if (g.ford || g.bridged) { const c = riverAt(g.y + g.h / 2); ctx.fillStyle = g.bridged ? '#b07a44' : '#9fd0e4'; ctx.fillRect(mm.x + (c.x - c.hw) * sx - 1, mm.y + (g.y + g.h * 0.3) * sy, c.hw * 2 * sx + 2, Math.max(2, g.h * 0.4 * sy)); }
+  }
   const me = s.driving || s;
   ctx.fillStyle = '#3fae2a';
   for (const o of G.outposts) ctx.fillRect(mm.x + o.x * sx - 3, mm.y + o.y * sy - 3, 6, 6);

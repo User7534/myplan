@@ -446,11 +446,51 @@ function addDynObstacle(o) {
   levelGroup.add(m); dynObs.push({ o, mesh: m });
 }
 function bridgeMesh(sg) {
-  const cx = sg.x + sg.w / 2, cz = sg.y + sg.h / 2, L = sg.w + 60, P = [];
-  for (let x = -L / 2; x < L / 2; x += 14) P.push(part(box(12, 4, 82), shadeHex('#9a6b3c', ((x / 14) % 3) * 0.03), { x: cx + x + 6, y: 6, z: cz }));
-  for (const z of [-42, 42]) { P.push(part(box(L, 4, 4), '#6e4720', { x: cx, y: 14, z: cz + z })); for (let x = -L / 2; x <= L / 2; x += 40) P.push(part(box(4, 12, 4), '#6e4720', { x: cx + x, y: 9, z: cz + z })); }
-  for (const x of [-sg.w / 2 + 10, sg.w / 2 - 10]) P.push(part(cyl(5, 5, 14, 10), '#5a3a1e', { x: cx + x, y: 1, z: cz }));
-  const m = new THREE.Mesh(merge(P), matte); m.castShadow = m.receiveShadow = true; return m;
+  const cz = sg.y + sg.h / 2, c = riverAt(cz), L = c.hw * 2 + 60, P = [];
+  for (let x = -L / 2; x < L / 2; x += 14) P.push(part(box(12, 4, 82), shadeHex('#9a6b3c', ((x / 14) % 3) * 0.03), { x: x + 6, y: 6 }));
+  for (const z of [-42, 42]) { P.push(part(box(L, 4, 4), '#6e4720', { y: 14, z })); for (let x = -L / 2; x <= L / 2; x += 40) P.push(part(box(4, 12, 4), '#6e4720', { x, y: 9, z })); }
+  for (const x of [-c.hw + 10, c.hw - 10]) for (const z of [-34, 34]) P.push(part(cyl(5, 5, 14, 10), '#5a3a1e', { x, y: 1, z }));
+  const m = new THREE.Mesh(merge(P), matte); m.castShadow = m.receiveShadow = true;
+  m.position.set(c.x, 0, cz); m.rotation.y = -(riverTangent(cz) + Math.PI / 2);   // square across the current
+  return m;
+}
+// smooth river ribbon built from the game's centreline samples
+function ribbon(pts, from, to, widen, y, uvScale = 1, taper = false) {
+  const pos = [], uv = [], idx = [];
+  for (let i = from; i <= to; i++) {
+    const p = pts[i], w = (p.hw + widen) * (taper ? Math.pow(Math.sin(Math.PI * (i - from) / Math.max(1, to - from)), 0.5) : 1);
+    pos.push(p.x - w, y, p.y, p.x + w, y, p.y);
+    uv.push(0, p.y / 260 * uvScale, 1, p.y / 260 * uvScale);
+    if (i > from) { const a = (i - from - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+function rippleTexture() {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 256;
+  const g = c.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, 128, 256);
+  g.strokeStyle = 'rgba(150,200,225,0.9)'; g.lineWidth = 3;
+  for (let i = 0; i < 26; i++) { const x = Math.random() * 128, y = Math.random() * 256, l = 12 + Math.random() * 26; g.beginPath(); g.moveTo(x - l / 2, y); g.quadraticCurveTo(x, y - 5, x + l / 2, y); g.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const ripples = rippleTexture();
+function buildRiver(R) {
+  const n = R.pts.length - 1;
+  const add = (g, mat, rs = true) => { const m = new THREE.Mesh(g, mat); m.receiveShadow = rs; levelGroup.add(m); return m; };
+  add(ribbon(R.pts, 0, n, 12, 0.5), new THREE.MeshStandardMaterial({ color: '#5e4e36', roughness: 1 }));          // wet muddy shoreline
+  add(ribbon(R.pts, 0, n, -10, 1.6), new THREE.MeshPhysicalMaterial({ color: '#2c7aa2', roughness: 0.05, clearcoat: 1, map: ripples, transparent: true, opacity: 0.9 })); // deep channel
+  add(ribbon(R.pts, 0, n, 0, 1.2), new THREE.MeshPhysicalMaterial({ color: '#5aa6c6', roughness: 0.08, clearcoat: 1, transparent: true, opacity: 0.85 })); // shallow edges
+  for (const sg of R.segs) if (sg.ford) {
+    const a = Math.max(0, Math.floor((sg.y - 30) / R.step)), b = Math.min(n, Math.ceil((sg.y + sg.h + 30) / R.step));
+    add(ribbon(R.pts, a, b, -4, 2.0, 1, true), shallowMat);
+    const stones = [];
+    for (let i = 0; i < 10; i++) { const yy = sg.y + 12 + (i * 37) % (sg.h - 24), c = riverAt(yy); stones.push(part(new THREE.DodecahedronGeometry(1, 0), '#9a968a', { x: c.x + ((i * 53) % 100 - 50) / 50 * c.hw * 0.7, y: 2.5, z: yy, sx: 10, sy: 4, sz: 8, ry: i })); }
+    const m = new THREE.Mesh(merge(stones), matte); m.receiveShadow = m.castShadow = true; levelGroup.add(m);
+  }
 }
 const THEME_LIGHT = {
   grass: [0xfff0d8, 2.8, 1.15], tile: [0xfff6ea, 2.5, 1.3], bedroom: [0xffe8c8, 2.6, 1.2], concrete: [0xf4f4ff, 2.4, 1.2],
@@ -476,12 +516,7 @@ function buildLevel(G) {
   rim.rotation.x = -Math.PI / 2; rim.position.set(W / 2, -2, H / 2); levelGroup.add(rim);
   // static obstacles merged into two meshes; destructible ones kept separate so they can disappear
   const gloss = [], mat = [];
-  if (G.river) for (const sg of G.river.segs) {
-    const cx = sg.x + sg.w / 2, cz = sg.y + sg.h / 2;
-    const water = new THREE.Mesh(new THREE.BoxGeometry(sg.w, 2, sg.h + 1), sg.ford ? shallowMat : waterMat);
-    water.position.set(cx, 1, cz); water.receiveShadow = true; levelGroup.add(water);
-    if (sg.ford) { const stones = []; for (let i = 0; i < 9; i++) stones.push(part(new THREE.DodecahedronGeometry(1, 0), '#8d8a80', { x: sg.x + 15 + (i * 53) % (sg.w - 30), y: 2, z: sg.y + 20 + (i * 37) % (sg.h - 40), sx: 10, sy: 4, sz: 9 })); const m = new THREE.Mesh(merge(stones), matte); m.receiveShadow = m.castShadow = true; levelGroup.add(m); }
-  }
+  if (G.river) buildRiver(G.river);
   for (const o of G.obs) {
     o._r3d = true;
     if (o.kind === 'water') continue;
@@ -529,6 +564,7 @@ function render(dt) {
   for (let i = dynObs.length - 1; i >= 0; i--) if (dynObs[i].o.dead) { levelGroup.remove(dynObs[i].mesh); dynObs[i].mesh.geometry.dispose(); dynObs.splice(i, 1); }
   for (const o of G.obs) if (!o._r3d) addDynObstacle(o);
   if (G.river) for (const sg of G.river.segs) if (sg.bridged && !bridges.has(sg)) { bridges.add(sg); levelGroup.add(bridgeMesh(sg)); }
+  ripples.offset.y -= dt * 0.12;   // current flows down the river
 
   // units
   const S = G.sarge;
@@ -635,7 +671,7 @@ function render(dt) {
     const pp = buildPreviewPoint();
     if (pp) {
       const S = STRUCTS[G.buildIdx], from = G.sarge.driving || G.sarge;
-      let { x, y } = pp; const seg = S.id === 'bridge' && riverSegAt(x, y); if (seg) { x = seg.x + seg.w / 2; y = seg.y + seg.h / 2; }
+      let { x, y } = pp; const seg = S.id === 'bridge' && riverSegAt(x, y); if (seg) { y = seg.y + seg.h / 2; x = riverAt(y).x; }
       ghost(S.id, x, y, Math.abs(pp.x - from.x) > Math.abs(pp.y - from.y), buildCheck(S, pp.x, pp.y) ? BAD : OK);
     }
   }
