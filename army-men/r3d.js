@@ -558,21 +558,30 @@ const CUBE = () => merge([part(box(1, 1, 1), '#ffffff')]);
 const RING = () => merge([part(new THREE.TorusGeometry(1, 0.025, 6, 40), '#ffffff', { rx: Math.PI / 2 })]);
 const DISC = () => merge([part(new THREE.CircleGeometry(1, 24), '#ffffff', { rx: -Math.PI / 2 })]);
 
+const cams = [camera, new THREE.PerspectiveCamera(32, 1, 20, 9000)];
+function viewList(G) {
+  if (!G.views) return [{ cam: camera, c: G.cam, x0: 0, w: innerWidth }];
+  return G.views.map((v, i) => ({ cam: cams[i], c: v.cam, x0: i * innerWidth / 2, w: innerWidth / 2 }));
+}
+// tilted camera centred on a game camera, with screen shake; the sun's shadow box follows it
+function placeCam(v, shake) {
+  const dist = 1080 / Z, pitch = 0.98, sh = shake * 0.6;
+  const tx = v.c.x + (Math.random() - 0.5) * sh, tz = v.c.y + (Math.random() - 0.5) * sh;
+  v.cam.aspect = v.w / innerHeight; v.cam.updateProjectionMatrix();
+  v.cam.position.set(tx, Math.sin(pitch) * dist, tz + Math.cos(pitch) * dist);
+  v.cam.lookAt(tx, 0, tz); v.cam.updateMatrixWorld();
+  sun.position.set(tx - 700, 1500, tz - 500); sun.target.position.set(tx, 0, tz); sun.target.updateMatrixWorld();
+}
 function render(dt) {
   const G = window.__pf.G;
   if (!G) return;
   if (G !== curG) buildLevel(G);
   const t = G.time;
 
-  // camera: tilted view centred on the game camera, with screen shake
-  const dist = 1080 / Z, pitch = 0.98;
-  const sh = G.shake * 0.6;
-  const tx = G.cam.x + (Math.random() - 0.5) * sh, tz = G.cam.y + (Math.random() - 0.5) * sh;
-  camera.position.set(tx, Math.sin(pitch) * dist, tz + Math.cos(pitch) * dist);
-  camera.lookAt(tx, 0, tz);
-  sun.position.set(tx - 700, 1500, tz - 500); sun.target.position.set(tx, 0, tz); sun.target.updateMatrixWorld();
+  // one view normally; two side-by-side views in split-screen co-op / Versus
+  const views = viewList(G);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const near = (x, y, m = 0) => Math.abs(x - G.cam.x) < 1500 + m && Math.abs(y - G.cam.y) < 1300 + m;
+  const near = (x, y, m = 0) => views.some(v => Math.abs(x - v.c.x) < 1500 + m && Math.abs(y - v.c.y) < 1300 + m);
 
   // destroyed / newly built obstacles and bridges
   for (let i = dynObs.length - 1; i >= 0; i--) if (dynObs[i].o.dead) { levelGroup.remove(dynObs[i].mesh); dynObs[i].mesh.geometry.dispose(); dynObs.splice(i, 1); }
@@ -581,13 +590,12 @@ function render(dt) {
   ripples.offset.y -= dt * 0.12;   // current flows down the river
 
   // units
-  const S = G.sarge;
   for (const u of G.units) {
     if (u.dead || !near(u.x, u.y, 100)) continue;
     const flash = u.flash > 0 ? FLASH : WHITE;
     const T = u.T;
     if (T.building) {
-      pool(u.type, () => bunkerGeo(u.team, u.r), matte).add(place(u.x, 0, u.y, 0), flash);
+      pool(u.type + u.team, () => bunkerGeo(u.team, u.r), matte).add(place(u.x, 0, u.y, 0), flash);
       pool('bgun', () => bunkerGunGeo(u.r)).add(place(u.x, 0, u.y, u.ta || 0), WHITE);
     } else if (u.type === 'boss') {
       pool('boss', bossGeo).add(place(u.x, 0, u.y, u.a, 3.2), flash);
@@ -616,9 +624,9 @@ function render(dt) {
         pool('rotorblur', () => merge([part(cyl(1.6 * T.r, 1.6 * T.r, 0.01, 32), '#fff')]), blurMat, { shadow: false }).add(place(u.x, alt + T.r * 0.7, u.y, 0), WHITE);
       }
     } else {
-      const w = u === S ? SARGE_SLOTS[u.slot].w : T.weapon, key = `${u.team}|${w}|${u === S ? 1 : 0}`;
+      const P = !!u.isPlayer, w = P ? SARGE_SLOTS[u.slot].w : T.weapon, key = `${u.team}|${w}|${P ? 1 : 0}`;
       const hop = u.moving ? Math.abs(Math.sin(u.anim * 11)) * 3.5 : 0;   // toy soldiers "hop" when moved
-      pool(key, () => soldierGeo(u.team, w, u === S)).add(place(u.x, hop, u.y, u.a, u === S ? 1.45 : 1.3), flash);
+      pool(key, () => soldierGeo(u.team, w, P)).add(place(u.x, hop, u.y, u.a, P ? 1.45 : 1.3), flash);
     }
   }
   if (!G.boss || G.boss.dead) shield.visible = false;
@@ -691,19 +699,42 @@ function render(dt) {
   }
 
   for (const p of pools.values()) p.end();
-  if (tiltShift) composer.render(); else renderer.render(scene, camera);
+  if (views.length === 1) {
+    placeCam(views[0], G.shake);
+    if (tiltShift) composer.render(); else renderer.render(scene, camera);
+  } else {
+    // split-screen: render each half with its own camera (and shadows centred on that player)
+    renderer.setScissorTest(true);
+    for (const v of views) {
+      placeCam(v, G.shake);
+      renderer.setViewport(v.x0, 0, v.w, innerHeight); renderer.setScissor(v.x0, 0, v.w, innerHeight);
+      renderer.render(scene, v.cam);
+    }
+    renderer.setScissorTest(false); renderer.setViewport(0, 0, innerWidth, innerHeight);
+  }
 }
 
 // ---------------------------------------------------------------- 2D overlay: bars, labels, rings
 const PV = new THREE.Vector3();
+let PCAM = camera, PX0 = 0, PW = innerWidth;
 function project(x, h, y) {
-  PV.set(x, h, y).project(camera);
+  PV.set(x, h, y).project(PCAM);
   if (PV.z > 1) return null;
-  return { x: (PV.x + 1) / 2 * innerWidth, y: (1 - PV.y) / 2 * innerHeight };
+  return { x: PX0 + (PV.x + 1) / 2 * PW, y: (1 - PV.y) / 2 * innerHeight };
 }
 function overlay(c) {
   const G = window.__pf.G;
   if (!G) return;
+  for (const v of viewList(G)) {
+    PCAM = v.cam; PX0 = v.x0; PW = v.w;
+    c.save(); c.beginPath(); c.rect(v.x0, 0, v.w, innerHeight); c.clip();
+    overlayView(c, G);
+    c.restore();
+  }
+  PCAM = camera; PX0 = 0; PW = innerWidth;
+  if (!mobile && !G.views) txt(tiltShift ? 'T: tilt-shift on' : 'T: tilt-shift off', innerWidth - 14, innerHeight - (innerHeight > 600 ? 175 : 150), 11, 'rgba(230,245,210,0.55)', 'right', false);
+}
+function overlayView(c, G) {
   c.save();
   const bar = (p, w, f, col) => {
     c.fillStyle = 'rgba(0,0,0,0.6)'; c.fillRect(p.x - w / 2 - 1, p.y - 1, w + 2, 6);
@@ -718,17 +749,19 @@ function overlay(c) {
   for (const p of G.pings) { c.globalAlpha = Math.max(0, p.t / 0.6); ring(p.x, p.y, 8 + (1 - p.t / 0.6) * 22, p.col); }
   c.globalAlpha = 1;
   for (const u of G.units) if (G.sel.has(u.id)) ring(u.x, u.y, u.r + 5, '#b8ff7a');
-  const S = G.sarge;
-  if (!S.dead) { const me = S.driving || S; ring(me.x, me.y, me.r + 6, 'rgba(255,230,120,0.9)', 2.5); }
+  for (const P of G.players) if (!P.dead) {
+    const me = P.driving || P; ring(me.x, me.y, me.r + 6, playerColor(P), 2.5);
+    if (G.players.length > 1) { const p = project(me.x, 60, me.y); if (p) txt('P' + (P.pid + 1), p.x, p.y, 12, playerColor(P), 'center'); }
+  }
   for (const u of G.units) {
     if (u.dead || u.type === 'boss' || !(u.hp < u.maxHp || u.T.building)) continue;
     const h = u.T.building ? 70 : u.T.kind === 'plane' ? 150 : u.T.air ? 120 : u.T.vehicle ? 40 : 34;
     const p = project(u.x, h, u.y); if (!p) continue;
     bar(p, u.T.building ? 70 : Math.max(22, u.r * 2.2), u.hp / u.maxHp, u.team === 'g' ? '#6fd13a' : '#e8b44a');
   }
-  if (!S.dead && !S.driving) {
-    const v = nearestFreeVehicle(S, 60);
-    if (v) { const p = project(v.x, 50, v.y); if (p) txt(touchMode ? 'Tap DRIVE' : padMode ? 'Y: drive' : 'E: drive', p.x, p.y, 13, '#ffe9a0', 'center'); }
+  for (const P of G.players) if (!P.dead && !P.driving) {
+    const v = nearestFreeVehicle(P, 60);
+    if (v) { const p = project(v.x, 50, v.y); if (p) txt(P !== G.sarge || padMode ? 'Y: drive' : touchMode ? 'Tap DRIVE' : 'E: drive', p.x, p.y, 13, '#ffe9a0', 'center'); }
   }
   for (const j of G.jobs) { const p = project(j.x, 40, j.y); if (p) bar(p, 60, j.progress / j.need, '#ffd76a'); }
   for (const tx of G.texts) { const p = project(tx.x, 36, tx.y); if (!p) continue; c.globalAlpha = Math.min(1, tx.t * 2); txt(tx.txt, p.x, p.y, 14, tx.col, 'center'); }
@@ -737,15 +770,15 @@ function overlay(c) {
     const pts = [[mouse.drag.x, mouse.drag.y], [mouse.wx, mouse.drag.y], [mouse.wx, mouse.wy], [mouse.drag.x, mouse.wy]].map(([x, y]) => project(x, 1, y));
     if (pts.every(Boolean)) { c.strokeStyle = '#b8ff7a'; c.lineWidth = 1.5; c.setLineDash([6, 4]); c.beginPath(); pts.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); c.stroke(); c.setLineDash([]); }
   }
-  if (!mobile) txt(tiltShift ? 'T: tilt-shift on' : 'T: tilt-shift off', innerWidth - 14, innerHeight - (innerHeight > 600 ? 175 : 150), 11, 'rgba(230,245,210,0.55)', 'right', false);
   c.restore();
 }
 
 // ---------------------------------------------------------------- screen -> ground
 const ray = new THREE.Raycaster(), NDC = new THREE.Vector2(), PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), HIT = new THREE.Vector3();
 function screenToWorld(sx, sy) {
-  NDC.set(sx / innerWidth * 2 - 1, -(sy / innerHeight) * 2 + 1);
-  ray.setFromCamera(NDC, camera);
+  const G = window.__pf.G, split = G && G.views;   // in split-screen the mouse belongs to Player 1's (left) view
+  NDC.set(split ? sx / (innerWidth / 2) * 2 - 1 : sx / innerWidth * 2 - 1, -(sy / innerHeight) * 2 + 1);
+  ray.setFromCamera(NDC, split ? cams[0] : camera);
   return ray.ray.intersectPlane(PLANE, HIT) ? { x: HIT.x, y: HIT.z } : null;
 }
 
