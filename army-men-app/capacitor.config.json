@@ -1,0 +1,11 @@
+{
+  "appId": "com.plasticfront.game",
+  "appName": "Plastic Front",
+  "webDir": "www",
+  "backgroundColor": "#14170f",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#14170f",
+    "scrollEnabled": false
+  }
+}
