@@ -446,11 +446,51 @@ function addDynObstacle(o) {
   levelGroup.add(m); dynObs.push({ o, mesh: m });
 }
 function bridgeMesh(sg) {
-  const cx = sg.x + sg.w / 2, cz = sg.y + sg.h / 2, L = sg.w + 60, P = [];
-  for (let x = -L / 2; x < L / 2; x += 14) P.push(part(box(12, 4, 82), shadeHex('#9a6b3c', ((x / 14) % 3) * 0.03), { x: cx + x + 6, y: 6, z: cz }));
-  for (const z of [-42, 42]) { P.push(part(box(L, 4, 4), '#6e4720', { x: cx, y: 14, z: cz + z })); for (let x = -L / 2; x <= L / 2; x += 40) P.push(part(box(4, 12, 4), '#6e4720', { x: cx + x, y: 9, z: cz + z })); }
-  for (const x of [-sg.w / 2 + 10, sg.w / 2 - 10]) P.push(part(cyl(5, 5, 14, 10), '#5a3a1e', { x: cx + x, y: 1, z: cz }));
-  const m = new THREE.Mesh(merge(P), matte); m.castShadow = m.receiveShadow = true; return m;
+  const cz = sg.y + sg.h / 2, c = riverAt(cz), L = c.hw * 2 + 60, P = [];
+  for (let x = -L / 2; x < L / 2; x += 14) P.push(part(box(12, 4, 82), shadeHex('#9a6b3c', ((x / 14) % 3) * 0.03), { x: x + 6, y: 6 }));
+  for (const z of [-42, 42]) { P.push(part(box(L, 4, 4), '#6e4720', { y: 14, z })); for (let x = -L / 2; x <= L / 2; x += 40) P.push(part(box(4, 12, 4), '#6e4720', { x, y: 9, z })); }
+  for (const x of [-c.hw + 10, c.hw - 10]) for (const z of [-34, 34]) P.push(part(cyl(5, 5, 14, 10), '#5a3a1e', { x, y: 1, z }));
+  const m = new THREE.Mesh(merge(P), matte); m.castShadow = m.receiveShadow = true;
+  m.position.set(c.x, 0, cz); m.rotation.y = -(riverTangent(cz) + Math.PI / 2);   // square across the current
+  return m;
+}
+// smooth river ribbon built from the game's centreline samples
+function ribbon(pts, from, to, widen, y, uvScale = 1, taper = false) {
+  const pos = [], uv = [], idx = [];
+  for (let i = from; i <= to; i++) {
+    const p = pts[i], w = (p.hw + widen) * (taper ? Math.pow(Math.sin(Math.PI * (i - from) / Math.max(1, to - from)), 0.5) : 1);
+    pos.push(p.x - w, y, p.y, p.x + w, y, p.y);
+    uv.push(0, p.y / 260 * uvScale, 1, p.y / 260 * uvScale);
+    if (i > from) { const a = (i - from - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+function rippleTexture() {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 256;
+  const g = c.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, 128, 256);
+  g.strokeStyle = 'rgba(150,200,225,0.9)'; g.lineWidth = 3;
+  for (let i = 0; i < 26; i++) { const x = Math.random() * 128, y = Math.random() * 256, l = 12 + Math.random() * 26; g.beginPath(); g.moveTo(x - l / 2, y); g.quadraticCurveTo(x, y - 5, x + l / 2, y); g.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const ripples = rippleTexture();
+function buildRiver(R) {
+  const n = R.pts.length - 1;
+  const add = (g, mat, rs = true) => { const m = new THREE.Mesh(g, mat); m.receiveShadow = rs; levelGroup.add(m); return m; };
+  add(ribbon(R.pts, 0, n, 12, 0.5), new THREE.MeshStandardMaterial({ color: '#5e4e36', roughness: 1 }));          // wet muddy shoreline
+  add(ribbon(R.pts, 0, n, -10, 1.6), new THREE.MeshPhysicalMaterial({ color: '#2c7aa2', roughness: 0.05, clearcoat: 1, map: ripples, transparent: true, opacity: 0.9 })); // deep channel
+  add(ribbon(R.pts, 0, n, 0, 1.2), new THREE.MeshPhysicalMaterial({ color: '#5aa6c6', roughness: 0.08, clearcoat: 1, transparent: true, opacity: 0.85 })); // shallow edges
+  for (const sg of R.segs) if (sg.ford) {
+    const a = Math.max(0, Math.floor((sg.y - 30) / R.step)), b = Math.min(n, Math.ceil((sg.y + sg.h + 30) / R.step));
+    add(ribbon(R.pts, a, b, -4, 2.0, 1, true), shallowMat);
+    const stones = [];
+    for (let i = 0; i < 10; i++) { const yy = sg.y + 12 + (i * 37) % (sg.h - 24), c = riverAt(yy); stones.push(part(new THREE.DodecahedronGeometry(1, 0), '#9a968a', { x: c.x + ((i * 53) % 100 - 50) / 50 * c.hw * 0.7, y: 2.5, z: yy, sx: 10, sy: 4, sz: 8, ry: i })); }
+    const m = new THREE.Mesh(merge(stones), matte); m.receiveShadow = m.castShadow = true; levelGroup.add(m);
+  }
 }
 const THEME_LIGHT = {
   grass: [0xfff0d8, 2.8, 1.15], tile: [0xfff6ea, 2.5, 1.3], bedroom: [0xffe8c8, 2.6, 1.2], concrete: [0xf4f4ff, 2.4, 1.2],
@@ -476,11 +516,20 @@ function buildLevel(G) {
   rim.rotation.x = -Math.PI / 2; rim.position.set(W / 2, -2, H / 2); levelGroup.add(rim);
   // static obstacles merged into two meshes; destructible ones kept separate so they can disappear
   const gloss = [], mat = [];
-  if (G.river) for (const sg of G.river.segs) {
-    const cx = sg.x + sg.w / 2, cz = sg.y + sg.h / 2;
-    const water = new THREE.Mesh(new THREE.BoxGeometry(sg.w, 2, sg.h + 1), sg.ford ? shallowMat : waterMat);
-    water.position.set(cx, 1, cz); water.receiveShadow = true; levelGroup.add(water);
-    if (sg.ford) { const stones = []; for (let i = 0; i < 9; i++) stones.push(part(new THREE.DodecahedronGeometry(1, 0), '#8d8a80', { x: sg.x + 15 + (i * 53) % (sg.w - 30), y: 2, z: sg.y + 20 + (i * 37) % (sg.h - 40), sx: 10, sy: 4, sz: 9 })); const m = new THREE.Mesh(merge(stones), matte); m.receiveShadow = m.castShadow = true; levelGroup.add(m); }
+  if (G.river) buildRiver(G.river);
+  for (const h of G.hazards || []) {
+    const mat = {
+      ice: new THREE.MeshPhysicalMaterial({ color: '#8cc4e8', roughness: 0.03, clearcoat: 1, transparent: true, opacity: 0.88 }),
+      oil: new THREE.MeshPhysicalMaterial({ color: '#141216', roughness: 0.05, metalness: 0.4, clearcoat: 1, iridescence: 0.8, iridescenceIOR: 1.4 }),
+      quicksand: new THREE.MeshStandardMaterial({ color: '#cfa96d', roughness: 1 }),
+      mud: new THREE.MeshPhysicalMaterial({ color: '#4d3620', roughness: 0.35, clearcoat: 0.6 }),
+      spill: new THREE.MeshPhysicalMaterial({ color: '#d9762e', roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.7 }),
+    }[h.type];
+    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 40), mat);
+    m.rotation.x = -Math.PI / 2; m.rotation.z = -h.rot; m.scale.set(h.rx, h.ry, 1); m.position.set(h.x, 0.4, h.y); m.receiveShadow = true;
+    levelGroup.add(m);
+    if (h.type === 'ice') { const rim = new THREE.Mesh(new THREE.RingGeometry(0.97, 1, 64), new THREE.MeshBasicMaterial({ color: '#4f8fc0', transparent: true, opacity: 0.8 })); rim.rotation.copy(m.rotation); rim.scale.copy(m.scale); rim.position.set(h.x, 0.5, h.y); levelGroup.add(rim); }
+    if (h.type === 'quicksand') for (let i = 1; i < 5; i++) { const ring = new THREE.Mesh(new THREE.RingGeometry(i / 5 - 0.012, i / 5, 48), new THREE.MeshBasicMaterial({ color: '#8f6b3c', transparent: true, opacity: 0.5 })); ring.rotation.copy(m.rotation); ring.scale.copy(m.scale); ring.position.set(h.x, 0.5, h.y); levelGroup.add(ring); }
   }
   for (const o of G.obs) {
     o._r3d = true;
@@ -509,35 +558,44 @@ const CUBE = () => merge([part(box(1, 1, 1), '#ffffff')]);
 const RING = () => merge([part(new THREE.TorusGeometry(1, 0.025, 6, 40), '#ffffff', { rx: Math.PI / 2 })]);
 const DISC = () => merge([part(new THREE.CircleGeometry(1, 24), '#ffffff', { rx: -Math.PI / 2 })]);
 
+const cams = [camera, new THREE.PerspectiveCamera(32, 1, 20, 9000)];
+function viewList(G) {
+  if (!G.views) return [{ cam: camera, c: G.cam, x0: 0, w: innerWidth }];
+  return G.views.map((v, i) => ({ cam: cams[i], c: v.cam, x0: i * innerWidth / 2, w: innerWidth / 2 }));
+}
+// tilted camera centred on a game camera, with screen shake; the sun's shadow box follows it
+function placeCam(v, shake) {
+  const dist = 1080 / Z, pitch = 0.98, sh = shake * 0.6;
+  const tx = v.c.x + (Math.random() - 0.5) * sh, tz = v.c.y + (Math.random() - 0.5) * sh;
+  v.cam.aspect = v.w / innerHeight; v.cam.updateProjectionMatrix();
+  v.cam.position.set(tx, Math.sin(pitch) * dist, tz + Math.cos(pitch) * dist);
+  v.cam.lookAt(tx, 0, tz); v.cam.updateMatrixWorld();
+  sun.position.set(tx - 700, 1500, tz - 500); sun.target.position.set(tx, 0, tz); sun.target.updateMatrixWorld();
+}
 function render(dt) {
   const G = window.__pf.G;
   if (!G) return;
   if (G !== curG) buildLevel(G);
   const t = G.time;
 
-  // camera: tilted view centred on the game camera, with screen shake
-  const dist = 1080 / Z, pitch = 0.98;
-  const sh = G.shake * 0.6;
-  const tx = G.cam.x + (Math.random() - 0.5) * sh, tz = G.cam.y + (Math.random() - 0.5) * sh;
-  camera.position.set(tx, Math.sin(pitch) * dist, tz + Math.cos(pitch) * dist);
-  camera.lookAt(tx, 0, tz);
-  sun.position.set(tx - 700, 1500, tz - 500); sun.target.position.set(tx, 0, tz); sun.target.updateMatrixWorld();
+  // one view normally; two side-by-side views in split-screen co-op / Versus
+  const views = viewList(G);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const near = (x, y, m = 0) => Math.abs(x - G.cam.x) < 1500 + m && Math.abs(y - G.cam.y) < 1300 + m;
+  const near = (x, y, m = 0) => views.some(v => Math.abs(x - v.c.x) < 1500 + m && Math.abs(y - v.c.y) < 1300 + m);
 
   // destroyed / newly built obstacles and bridges
   for (let i = dynObs.length - 1; i >= 0; i--) if (dynObs[i].o.dead) { levelGroup.remove(dynObs[i].mesh); dynObs[i].mesh.geometry.dispose(); dynObs.splice(i, 1); }
   for (const o of G.obs) if (!o._r3d) addDynObstacle(o);
   if (G.river) for (const sg of G.river.segs) if (sg.bridged && !bridges.has(sg)) { bridges.add(sg); levelGroup.add(bridgeMesh(sg)); }
+  ripples.offset.y -= dt * 0.12;   // current flows down the river
 
   // units
-  const S = G.sarge;
   for (const u of G.units) {
     if (u.dead || !near(u.x, u.y, 100)) continue;
     const flash = u.flash > 0 ? FLASH : WHITE;
     const T = u.T;
     if (T.building) {
-      pool(u.type, () => bunkerGeo(u.team, u.r), matte).add(place(u.x, 0, u.y, 0), flash);
+      pool(u.type + u.team, () => bunkerGeo(u.team, u.r), matte).add(place(u.x, 0, u.y, 0), flash);
       pool('bgun', () => bunkerGunGeo(u.r)).add(place(u.x, 0, u.y, u.ta || 0), WHITE);
     } else if (u.type === 'boss') {
       pool('boss', bossGeo).add(place(u.x, 0, u.y, u.a, 3.2), flash);
@@ -545,15 +603,15 @@ function render(dt) {
     } else if (T.vehicle) {
       const k = T.kind, tm = u.team;
       if (k === 'tank') {
-        pool('tank' + tm, () => tankHullGeo(tm, T.r)).add(place(u.x, 0, u.y, u.a), flash);
-        pool('turret' + tm, () => tankTurretGeo(tm, T.r)).add(place(u.x, 0, u.y, u.ta), flash);
+        pool('tank' + tm + T.r, () => tankHullGeo(tm, T.r)).add(place(u.x, 0, u.y, u.a), flash);
+        pool('turret' + tm + T.r, () => tankTurretGeo(tm, T.r)).add(place(u.x, 0, u.y, u.ta), flash);
       } else if (k === 'plane') {
         // bank into turns: roll follows the turn rate
         const prev = u._pa ?? u.a; u._pa = u.a;
         const turn = (((u.a - prev + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
         u._roll = (u._roll || 0) * 0.9 + clamp(turn / Math.max(dt, 1e-3) * 0.35, -0.9, 0.9) * 0.1;
         Q.setFromEuler(_e.set(u._roll, -u.a, 0, 'YXZ'));
-        pool('plane' + tm, () => planeGeo(tm, T.r)).add(M.compose(POS.set(u.x, 115, u.y), Q, SCL.set(1.2, 1.2, 1.2)), flash);
+        pool('plane' + tm + T.r, () => planeGeo(tm, T.r)).add(M.compose(POS.set(u.x, 115, u.y), Q, SCL.set(1.2, 1.2, 1.2)), flash);
         const nose = 1.5 * T.r * 1.2;
         pool('propblur', () => merge([part(cyl(0.85 * T.r, 0.85 * T.r, 0.01, 28), '#fff', { rz: Math.PI / 2 })]), blurMat, { shadow: false }).add(M.compose(POS.set(u.x + Math.cos(u.a) * nose, 115, u.y + Math.sin(u.a) * nose), Q, SCL.set(1.2, 1.2, 1.2)), WHITE);
       } else if (k === 'jeep') {
@@ -566,9 +624,9 @@ function render(dt) {
         pool('rotorblur', () => merge([part(cyl(1.6 * T.r, 1.6 * T.r, 0.01, 32), '#fff')]), blurMat, { shadow: false }).add(place(u.x, alt + T.r * 0.7, u.y, 0), WHITE);
       }
     } else {
-      const w = u === S ? SARGE_SLOTS[u.slot].w : T.weapon, key = `${u.team}|${w}|${u === S ? 1 : 0}`;
+      const P = !!u.isPlayer, w = P ? SARGE_SLOTS[u.slot].w : T.weapon, key = `${u.team}|${w}|${P ? 1 : 0}`;
       const hop = u.moving ? Math.abs(Math.sin(u.anim * 11)) * 3.5 : 0;   // toy soldiers "hop" when moved
-      pool(key, () => soldierGeo(u.team, w, u === S)).add(place(u.x, hop, u.y, u.a, u === S ? 1.45 : 1.3), flash);
+      pool(key, () => soldierGeo(u.team, w, P)).add(place(u.x, hop, u.y, u.a, P ? 1.45 : 1.3), flash);
     }
   }
   if (!G.boss || G.boss.dead) shield.visible = false;
@@ -635,25 +693,48 @@ function render(dt) {
     const pp = buildPreviewPoint();
     if (pp) {
       const S = STRUCTS[G.buildIdx], from = G.sarge.driving || G.sarge;
-      let { x, y } = pp; const seg = S.id === 'bridge' && riverSegAt(x, y); if (seg) { x = seg.x + seg.w / 2; y = seg.y + seg.h / 2; }
+      let { x, y } = pp; const seg = S.id === 'bridge' && riverSegAt(x, y); if (seg) { y = seg.y + seg.h / 2; x = riverAt(y).x; }
       ghost(S.id, x, y, Math.abs(pp.x - from.x) > Math.abs(pp.y - from.y), buildCheck(S, pp.x, pp.y) ? BAD : OK);
     }
   }
 
   for (const p of pools.values()) p.end();
-  if (tiltShift) composer.render(); else renderer.render(scene, camera);
+  if (views.length === 1) {
+    placeCam(views[0], G.shake);
+    if (tiltShift) composer.render(); else renderer.render(scene, camera);
+  } else {
+    // split-screen: render each half with its own camera (and shadows centred on that player)
+    renderer.setScissorTest(true);
+    for (const v of views) {
+      placeCam(v, G.shake);
+      renderer.setViewport(v.x0, 0, v.w, innerHeight); renderer.setScissor(v.x0, 0, v.w, innerHeight);
+      renderer.render(scene, v.cam);
+    }
+    renderer.setScissorTest(false); renderer.setViewport(0, 0, innerWidth, innerHeight);
+  }
 }
 
 // ---------------------------------------------------------------- 2D overlay: bars, labels, rings
 const PV = new THREE.Vector3();
+let PCAM = camera, PX0 = 0, PW = innerWidth;
 function project(x, h, y) {
-  PV.set(x, h, y).project(camera);
+  PV.set(x, h, y).project(PCAM);
   if (PV.z > 1) return null;
-  return { x: (PV.x + 1) / 2 * innerWidth, y: (1 - PV.y) / 2 * innerHeight };
+  return { x: PX0 + (PV.x + 1) / 2 * PW, y: (1 - PV.y) / 2 * innerHeight };
 }
 function overlay(c) {
   const G = window.__pf.G;
   if (!G) return;
+  for (const v of viewList(G)) {
+    PCAM = v.cam; PX0 = v.x0; PW = v.w;
+    c.save(); c.beginPath(); c.rect(v.x0, 0, v.w, innerHeight); c.clip();
+    overlayView(c, G);
+    c.restore();
+  }
+  PCAM = camera; PX0 = 0; PW = innerWidth;
+  if (!mobile && !G.views) txt(tiltShift ? 'T: tilt-shift on' : 'T: tilt-shift off', innerWidth - 14, innerHeight - (innerHeight > 600 ? 175 : 150), 11, 'rgba(230,245,210,0.55)', 'right', false);
+}
+function overlayView(c, G) {
   c.save();
   const bar = (p, w, f, col) => {
     c.fillStyle = 'rgba(0,0,0,0.6)'; c.fillRect(p.x - w / 2 - 1, p.y - 1, w + 2, 6);
@@ -668,17 +749,19 @@ function overlay(c) {
   for (const p of G.pings) { c.globalAlpha = Math.max(0, p.t / 0.6); ring(p.x, p.y, 8 + (1 - p.t / 0.6) * 22, p.col); }
   c.globalAlpha = 1;
   for (const u of G.units) if (G.sel.has(u.id)) ring(u.x, u.y, u.r + 5, '#b8ff7a');
-  const S = G.sarge;
-  if (!S.dead) { const me = S.driving || S; ring(me.x, me.y, me.r + 6, 'rgba(255,230,120,0.9)', 2.5); }
+  for (const P of G.players) if (!P.dead) {
+    const me = P.driving || P; ring(me.x, me.y, me.r + 6, playerColor(P), 2.5);
+    if (G.players.length > 1) { const p = project(me.x, 60, me.y); if (p) txt('P' + (P.pid + 1), p.x, p.y, 12, playerColor(P), 'center'); }
+  }
   for (const u of G.units) {
     if (u.dead || u.type === 'boss' || !(u.hp < u.maxHp || u.T.building)) continue;
     const h = u.T.building ? 70 : u.T.kind === 'plane' ? 150 : u.T.air ? 120 : u.T.vehicle ? 40 : 34;
     const p = project(u.x, h, u.y); if (!p) continue;
     bar(p, u.T.building ? 70 : Math.max(22, u.r * 2.2), u.hp / u.maxHp, u.team === 'g' ? '#6fd13a' : '#e8b44a');
   }
-  if (!S.dead && !S.driving) {
-    const v = nearestFreeVehicle(S, 60);
-    if (v) { const p = project(v.x, 50, v.y); if (p) txt(touchMode ? 'Tap DRIVE' : padMode ? 'Y: drive' : 'E: drive', p.x, p.y, 13, '#ffe9a0', 'center'); }
+  for (const P of G.players) if (!P.dead && !P.driving) {
+    const v = nearestFreeVehicle(P, 60);
+    if (v) { const p = project(v.x, 50, v.y); if (p) txt(P !== G.sarge || padMode ? 'Y: drive' : touchMode ? 'Tap DRIVE' : 'E: drive', p.x, p.y, 13, '#ffe9a0', 'center'); }
   }
   for (const j of G.jobs) { const p = project(j.x, 40, j.y); if (p) bar(p, 60, j.progress / j.need, '#ffd76a'); }
   for (const tx of G.texts) { const p = project(tx.x, 36, tx.y); if (!p) continue; c.globalAlpha = Math.min(1, tx.t * 2); txt(tx.txt, p.x, p.y, 14, tx.col, 'center'); }
@@ -687,15 +770,15 @@ function overlay(c) {
     const pts = [[mouse.drag.x, mouse.drag.y], [mouse.wx, mouse.drag.y], [mouse.wx, mouse.wy], [mouse.drag.x, mouse.wy]].map(([x, y]) => project(x, 1, y));
     if (pts.every(Boolean)) { c.strokeStyle = '#b8ff7a'; c.lineWidth = 1.5; c.setLineDash([6, 4]); c.beginPath(); pts.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); c.stroke(); c.setLineDash([]); }
   }
-  if (!mobile) txt(tiltShift ? 'T: tilt-shift on' : 'T: tilt-shift off', innerWidth - 14, innerHeight - (innerHeight > 600 ? 175 : 150), 11, 'rgba(230,245,210,0.55)', 'right', false);
   c.restore();
 }
 
 // ---------------------------------------------------------------- screen -> ground
 const ray = new THREE.Raycaster(), NDC = new THREE.Vector2(), PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), HIT = new THREE.Vector3();
 function screenToWorld(sx, sy) {
-  NDC.set(sx / innerWidth * 2 - 1, -(sy / innerHeight) * 2 + 1);
-  ray.setFromCamera(NDC, camera);
+  const G = window.__pf.G, split = G && G.views;   // in split-screen the mouse belongs to Player 1's (left) view
+  NDC.set(split ? sx / (innerWidth / 2) * 2 - 1 : sx / innerWidth * 2 - 1, -(sy / innerHeight) * 2 + 1);
+  ray.setFromCamera(NDC, split ? cams[0] : camera);
   return ray.ray.intersectPlane(PLANE, HIT) ? { x: HIT.x, y: HIT.z } : null;
 }
 

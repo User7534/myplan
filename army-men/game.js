@@ -7,7 +7,7 @@
 
 const cvs = document.getElementById('c');
 const ctx = cvs.getContext('2d');
-let VW = 0, VH = 0, DPR = 1, Z = 1, HS = 1;
+let VW = 0, VH = 0, DPR = 1, Z = 1, HS = 1, BASEZ = 1, VX = 0;
 // touch play: twin virtual sticks + tap buttons
 let touchMode = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
 let moveStick = null, aimStick = null, commandMode = false;
@@ -17,7 +17,7 @@ function resize() {
   VW = innerWidth; VH = innerHeight;
   cvs.width = VW * DPR; cvs.height = VH * DPR;
   cvs.style.width = VW + 'px'; cvs.style.height = VH + 'px';
-  Z = Math.max(0.55, Math.min(1.15, Math.min(VW / 1400, VH / 850)));
+  BASEZ = Z = Math.max(0.55, Math.min(1.15, Math.min(VW / 1400, VH / 850)));
 }
 addEventListener('resize', resize); resize();
 
@@ -26,6 +26,7 @@ addEventListener('resize', resize); resize();
 const use3D = () => !!(window.PF3D && window.PF3D.ready);
 function screenToWorld(sx, sy) {
   if (use3D()) { const p = window.PF3D.screenToWorld(sx, sy); if (p) return p; }
+  if (G && G.views) { const c = G.views[0].cam; return { x: (sx - VW / 4) / Z + c.x, y: (sy - VH / 2) / Z + c.y }; }  // P1 owns the left half
   return { x: (sx - VW / 2) / Z + G.cam.x, y: (sy - VH / 2) / Z + G.cam.y };
 }
 
@@ -136,6 +137,7 @@ const WEAP = {
   t_heli:    { cd: 0.9, dmg: 22, spd: 480, range: 380, splash: 40, kind: 'rocket', snd: 'rocket' },
   t_flamer:  { cd: 0.08, dmg: 2.6, spd: 290, range: 160, life: 0.5, spread: 0.25, kind: 'flame', snd: 'flame' },
   t_pguns:   { cd: 0.12, dmg: 6, spd: 820, range: 380, spread: 0.08, kind: 'bullet', snd: 'tshot' },
+  t_mega:    { cd: 1.3, dmg: 70, spd: 450, range: 480, splash: 90, kind: 'shell', snd: 'cannon' },
   t_mg:      { cd: 0.45, dmg: 6, spd: 560, range: 330, spread: 0.12, kind: 'bullet', snd: 'tshot' },
   b_rocket:  { cd: 0, dmg: 40, spd: 330, range: 700, splash: 70, kind: 'rocket', snd: 'rocket' },
   b_orb:     { cd: 0, dmg: 10, spd: 300, range: 700, kind: 'orb', snd: 'tshot' },
@@ -165,6 +167,8 @@ const TYPES = {
   t_tank:   { team: 't', hp: 420, speed: 55, r: 22, weapon: 't_cannon', sight: 420, bounty: 60, vehicle: true, kind: 'tank' },
   t_heli:   { team: 't', hp: 260, speed: 120, r: 20, weapon: 't_heli', sight: 420, bounty: 70, vehicle: true, air: true, kind: 'heli' },
   bunker:   { team: 't', hp: 800, r: 42, building: true, weapon: 't_mg', sight: 330, bounty: 120 },
+  megatank: { team: 't', hp: 2600, speed: 45, r: 38, weapon: 't_mega', sight: 520, bounty: 300, vehicle: true, kind: 'tank', title: 'MEGA TANK' },
+  t_bomber: { team: 't', hp: 1500, speed: 200, r: 34, weapon: 't_pguns', sight: 650, bounty: 300, vehicle: true, air: true, kind: 'plane', title: 'SNOW HAWK BOMBER' },
   boss:     { team: 't', hp: 4200, speed: 75, r: 34, weapon: 't_mg', sight: 650, bounty: 500 },
 };
 const RECRUITS = ['rifle', 'bazooka', 'flamer', 'medic', 'sniper', 'mortar', 'engineer', 'jeep', 'gtank', 'gheli', 'gplane'];
@@ -191,9 +195,69 @@ let diffIdx = clamp(store.get('difficulty', 1) | 0, 0, 2);
 let missionSel = 0;
 const DIFF = () => DIFFS[diffIdx];
 
+// ---------- medals (achievements) ----------
+const MEDALS = [
+  { id: 'first', name: 'First Blood', desc: 'Defeat your first tan soldier' },
+  { id: 'bunkers', name: 'Bunker Buster', desc: 'Destroy 10 bunkers', stat: 'bunkers', goal: 10 },
+  { id: 'builds', name: 'Corps of Engineers', desc: 'Build 10 structures', stat: 'builds', goal: 10 },
+  { id: 'bridge', name: 'Bridge Builder', desc: 'Build a bridge across a river' },
+  { id: 'ace', name: 'Ace Pilot', desc: 'Get 5 kills flying a fighter', stat: 'planeKills', goal: 5 },
+  { id: 'tanker', name: 'Tank Commander', desc: 'Get 25 kills driving a tank', stat: 'tankKills', goal: 25 },
+  { id: 'roadkill', name: 'Road Rage', desc: 'Run over 10 tan soldiers', stat: 'runovers', goal: 10 },
+  { id: 'mines', name: 'Watch Your Step', desc: 'Destroy 10 enemies with mines', stat: 'mineKills', goal: 10 },
+  { id: 'veteran', name: 'Veteran', desc: 'Defeat 500 tan troops in total', stat: 'kills', goal: 500 },
+  { id: 'untouchable', name: 'Untouchable', desc: 'Win a mission without Sarge going down' },
+  { id: 'noloss', name: 'No Man Left Behind', desc: 'Win a mission without losing a squad member' },
+  { id: 'hard', name: 'Hard as Plastic', desc: 'Win a mission on Hard' },
+  { id: 'giant', name: 'Giant Killer', desc: 'Destroy a mini-boss' },
+  { id: 'overlord', name: 'Overlord Slayer', desc: 'Defeat the Tan Overlord' },
+  { id: 'campaign', name: 'Campaign Veteran', desc: 'Complete all 10 missions' },
+  { id: 'armory', name: 'Fully Loaded', desc: 'Max out any upgrade' },
+  { id: 'coop', name: 'Brothers in Arms', desc: 'Win a mission in co-op' },
+  { id: 'duel', name: 'Duelist', desc: 'Win a Versus match' },
+];
+let medals = store.get('medals', {}), stats = store.get('stats', {});
+const toasts = [];
+function award(id) {
+  if (medals[id]) return;
+  medals[id] = Date.now(); store.set('medals', medals);
+  const m = MEDALS.find(x => x.id === id);
+  if (m) { toasts.push({ title: 'Medal earned', text: m.name, sub: m.desc, t: 4.5 }); sfx('win'); }
+}
+function bump(stat, n = 1) {
+  stats[stat] = (stats[stat] || 0) + n; store.set('stats', stats);
+  for (const m of MEDALS) if (m.stat === stat && stats[stat] >= m.goal) award(m.id);
+}
+
+// ---------- the Armory: permanent upgrades bought with stars ----------
+const UPGRADES = [
+  { id: 'armor', name: 'Tougher Plastic', desc: '+15% health for Sarge and your squad' },
+  { id: 'damage', name: 'Veteran Training', desc: '+10% damage for Sarge and your squad' },
+  { id: 'ammo', name: 'Bigger Pockets', desc: '+30% starting ammo for Sarge' },
+  { id: 'income', name: 'Supply Lines', desc: '+15% plastic per kill, +60 at mission start' },
+  { id: 'build', name: 'Rapid Engineers', desc: 'Engineers build 30% faster' },
+  { id: 'medic', name: 'Field Medicine', desc: 'Sarge and medics heal 50% faster' },
+];
+let upgrades = store.get('upgrades', {}), stars = store.get('stars', 0) | 0;
+const upCost = lvl => lvl + 1;             // level 1 costs 1 star, level 2 costs 2, level 3 costs 3
+// upgrades apply in the campaign and co-op, never in Versus
+const upg = id => (G && G.mode === 'versus') ? 0 : (upgrades[id] || 0);
+function buyUpgrade(id) {
+  const lvl = upgrades[id] || 0;
+  if (lvl >= 3) { sfx('deny'); return; }
+  if (stars < upCost(lvl)) { sfx('deny'); toasts.push({ title: 'Not enough stars', text: 'Win missions to earn more', t: 2 }); return; }
+  stars -= upCost(lvl); upgrades[id] = lvl + 1;
+  store.set('stars', stars); store.set('upgrades', upgrades);
+  sfx('recruit');
+  if (upgrades[id] >= 3) award('armory');
+}
+let campaign = store.get('campaign', null);   // { mission, carry, diff } after each win
+let gameMode = 'campaign';                     // 'campaign' | 'coop' | 'versus'
+let menuCursor = 0;
+
 // bunker / boss positions are fractions of the map size; HQ is always on the left edge
 const LEVELS = [
-  { name: 'Operation Backyard', theme: 'grass', w: 4200, h: 2800, brief: 'Destroy all three Tan bunkers. Your jeep is waiting: walk up and press E to drive.',
+  { name: 'Operation Backyard', theme: 'grass', w: 4200, h: 2800, brief: 'Destroy all three Tan bunkers. Your jeep is waiting: walk up to it to drive.',
     bunkers: [[0.6, 0.2], [0.86, 0.5], [0.6, 0.82]], spawnRate: 7, cap: 4, raid: 0.25, waveT: 75,
     mix: [['t_rifle', 0.85], ['t_jeep', 0.15]], guards: 3, obstacles: 110 },
   { name: 'Kitchen Floor Offensive', theme: 'tile', w: 4800, h: 3000, brief: 'Four bunkers, plus Tan tanks and jeeps. Wipe them out.',
@@ -243,7 +307,7 @@ cvs.addEventListener('mousedown', e => {
   touchMode = false; padMode = false;
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (e.button === 0) {
-    if (state === 'title') { hudClick(mouse.x, mouse.y); return; }
+    if (MENU_STATES.includes(state)) { hudClick(mouse.x, mouse.y); return; }
     if (state !== 'play') { onClickOverlay(); return; }
     if (hudClick(mouse.x, mouse.y)) return;
     if (G.buildMode) { placeBuild(mouse.wx, mouse.wy); return; }
@@ -274,7 +338,7 @@ cvs.addEventListener('touchstart', e => {
   touchMode = true;
   for (const t of e.changedTouches) {
     const x = t.clientX, y = t.clientY;
-    if (state === 'title') { hudClick(x, y); return; }
+    if (MENU_STATES.includes(state)) { hudClick(x, y); return; }
     if (state !== 'play') { onClickOverlay(); return; }
     padMode = false;
     if (hudClick(x, y)) continue;
@@ -313,23 +377,56 @@ function stickVec(st) {
 // 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 LT, 7 RT, 8 View, 9 Menu, 12-15 D-pad up/down/left/right
 let padMode = false, pad = null, padPrev = [], padAimA = 0, recruitCursor = 0, activePad = null;
 addEventListener('gamepadconnected', () => { if (G && state === 'play') banner('', 'Controller connected — press any button', 2); });
+const padPrevs = [[], []];
+let padStates = [null, null];
+function readPads() {
+  const list = navigator.getGamepads ? [...navigator.getGamepads()].filter(q => q && q.connected) : [];
+  padStates = [0, 1].map(i => {
+    const gp = list[i];
+    if (!gp) { padPrevs[i] = []; return null; }
+    const now = gp.buttons.map(b => !!b && (b.pressed || b.value > 0.4)), prev = padPrevs[i];
+    padPrevs[i] = now;
+    const ax = k => { const v = gp.axes[k] || 0; return Math.abs(v) < 0.2 ? 0 : v; };
+    const st = { gp, now, pressed: k => now[k] && !prev[k], lx: ax(0), ly: ax(1), rx: ax(2), ry: ax(3), rt: !!now[7], lt: !!now[6] };
+    st.any = now.some(Boolean) || st.lx || st.ly || st.rx || st.ry;
+    return st;
+  });
+}
+const padCount = () => padStates.filter(Boolean).length;
+const multiplayer = () => !!(G && G.players && G.players.length > 1);
 function pollPad() {
-  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-  let gp = null;
-  for (const q of pads) if (q && q.connected) { gp = q; break; }
-  activePad = gp;
-  if (!gp) { pad = null; return; }
-  const now = gp.buttons.map(b => !!b && (b.pressed || b.value > 0.4));
-  const prev = padPrev;
-  const pressed = i => now[i] && !prev[i];
-  const ax = i => { const v = gp.axes[i] || 0; return Math.abs(v) < 0.2 ? 0 : v; };
-  pad = { lx: ax(0), ly: ax(1), rx: ax(2), ry: ax(3), rt: !!now[7], lt: !!now[6] };
-  const any = now.some(Boolean) || pad.lx || pad.ly || pad.rx || pad.ry;
-  if (any && !padMode) { padMode = true; touchMode = false; }
-  if (now.some(Boolean)) initAudio();
-  padPrev = now;
+  readPads();
+  const mpPlay = multiplayer() && (state === 'play' || state === 'paused');
+  // Player 2 always has a controller; Player 1 gets pad 0 only when two are connected
+  const p1i = mpPlay ? (G.p2.padIdx === 1 ? 0 : -1) : 0;
+  if (mpPlay) {
+    const s2 = padStates[G.p2.padIdx];
+    G.p2.pad = s2;
+    if (s2 && state === 'play') handlePadPlay(G.p2, s2);
+    else if (s2 && state === 'paused' && (s2.pressed(9) || s2.pressed(0))) state = 'play';
+  }
+  const st = p1i >= 0 ? padStates[p1i] : null;
+  activePad = st && st.gp;
+  if (!st) { pad = null; return; }
+  const pressed = st.pressed;
+  pad = { lx: st.lx, ly: st.ly, rx: st.rx, ry: st.ry, rt: st.rt, lt: st.lt };
+  if (st.any && !padMode) { padMode = true; touchMode = false; }
+  if (st.now.some(Boolean)) initAudio();
   if (!padMode) return;
+  if (state === 'armory' || state === 'levelwin') {
+    const n = UPGRADES.length + 1;
+    if (pressed(12)) menuCursor = (menuCursor + n - 1) % n;
+    if (pressed(13)) menuCursor = (menuCursor + 1) % n;
+    if (pressed(0)) { if (menuCursor < UPGRADES.length) buyUpgrade(UPGRADES[menuCursor].id); else leaveArmory(); }
+    if (pressed(9) || (pressed(1) && state === 'armory')) leaveArmory();
+    return;
+  }
+  if (state === 'medals') { if (pressed(0) || pressed(1) || pressed(9)) state = 'title'; return; }
   if (state === 'title') {
+    if (pressed(4)) { state = 'medals'; return; }
+    if (pressed(5)) { state = 'armory'; menuCursor = 0; return; }
+    if (pressed(3) && campaign) { continueCampaign(); return; }
+    if (pressed(2)) setMode(MODES.indexOf(gameMode) + 1);
     if (pressed(14)) setDifficulty(diffIdx - 1);
     if (pressed(15)) setDifficulty(diffIdx + 1);
     if (pressed(12)) setMission(missionSel - 1);
@@ -342,29 +439,37 @@ function pollPad() {
     if (pressed(0) || pressed(9)) onClickOverlay();
     return;
   }
+  handlePadPlay(G.sarge, st);
+}
+function handlePadPlay(pl, st) {
+  const pressed = st.pressed;
   if (pressed(9)) { state = 'paused'; return; }
-  if (pressed(10) || pressed(11)) toggleBuild();
-  if (G.buildMode) {
-    const n = STRUCTS.length;
-    if (pressed(14)) G.buildIdx = (G.buildIdx + n - 1) % n;
-    if (pressed(15)) G.buildIdx = (G.buildIdx + 1) % n;
-    if (pressed(1)) toggleBuild(false);
-    if (pressed(0)) { const p = padBuildPoint(); placeBuild(p.x, p.y); }
-    return;
+  if (pl === G.sarge) {
+    if (pressed(10) || pressed(11)) toggleBuild();
+    if (G.buildMode) {
+      const n = STRUCTS.length;
+      if (pressed(14)) G.buildIdx = (G.buildIdx + n - 1) % n;
+      if (pressed(15)) G.buildIdx = (G.buildIdx + 1) % n;
+      if (pressed(1)) toggleBuild(false);
+      if (pressed(0)) { const p = padBuildPoint(); placeBuild(p.x, p.y); }
+      return;
+    }
+    if (pressed(8)) showHelp = !showHelp;
   }
-  if (pressed(8)) showHelp = !showHelp;
-  if (pressed(4)) cycleWeapon(-1);
-  if (pressed(5)) cycleWeapon(1);
-  if (pressed(0)) orderFollow();
-  if (pressed(1)) orderHold();
-  if (pressed(3)) toggleVehicle();
-  if (pressed(2)) recruit(RECRUITS[recruitCursor]);
+  if (pressed(4)) cycleWeapon(-1, pl);
+  if (pressed(5)) cycleWeapon(1, pl);
+  if (pressed(0)) orderFollow(pl);
+  if (pressed(1)) orderHold(pl);
+  if (pressed(3)) toggleVehicle(pl);
   const n = RECRUITS.length;
-  if (pressed(14)) recruitCursor = (recruitCursor + n - 1) % n;
-  if (pressed(15)) recruitCursor = (recruitCursor + 1) % n;
-  if (pressed(12)) recruitCursor = (recruitCursor + n - 2) % n;
-  if (pressed(13)) recruitCursor = (recruitCursor + 2) % n;
-  if (pressed(6)) padOrder();
+  let rc = pl === G.sarge ? recruitCursor : (pl.rc || 0);
+  if (pressed(2)) recruit(RECRUITS[rc], pl);
+  if (pressed(14)) rc = (rc + n - 1) % n;
+  if (pressed(15)) rc = (rc + 1) % n;
+  if (pressed(12)) rc = (rc + n - 2) % n;
+  if (pressed(13)) rc = (rc + 2) % n;
+  if (pl === G.sarge) recruitCursor = rc; else pl.rc = rc;
+  if (pressed(6)) padOrder(pl);
 }
 function rumble(strong, weak, ms) {
   try { if (padMode && activePad && activePad.vibrationActuator) activePad.vibrationActuator.playEffect('dual-rumble', { duration: ms, strongMagnitude: strong, weakMagnitude: weak }); } catch (e) { /* not supported */ }
@@ -373,18 +478,31 @@ function padBuildPoint() {
   const s = G.sarge, o = s.driving || s;
   return { x: o.x + Math.cos(padAimA) * 170, y: o.y + Math.sin(padAimA) * 170 };
 }
-function padOrder() {
-  const s = G.sarge; if (s.dead) return;
-  const o = s.driving || s;
-  const a = padAimA, tgt = assistAim(o, a, 600, 't');
-  if (tgt) orderAt(tgt.x, tgt.y);
-  else orderAt(o.x + Math.cos(a) * 320, o.y + Math.sin(a) * 320);
+function padOrder(pl = G.sarge) {
+  if (pl.dead) return;
+  const o = pl.driving || pl;
+  const a = pl === G.sarge ? padAimA : (pl.padAimA || 0), tgt = assistAim(o, a, 600, enemyOf(pl.team));
+  if (tgt) orderAt(tgt.x, tgt.y, pl);
+  else orderAt(o.x + Math.cos(a) * 320, o.y + Math.sin(a) * 320, pl);
 }
+const enemyOf = team => team === 'g' ? 't' : 'g';
 
 function onKeyPress(e) {
   initAudio();
   if (e.code === 'KeyM') { muted = !muted; return; }
+  if (state === 'armory' || state === 'levelwin') {
+    const n = +e.code.replace('Digit', '') - 1;
+    if (e.code.startsWith('Digit') && n >= 0 && n < UPGRADES.length) buyUpgrade(UPGRADES[n].id);
+    if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') leaveArmory();
+    return;
+  }
+  if (state === 'medals') { if (['Enter', 'Space', 'Escape'].includes(e.code)) state = 'title'; return; }
   if (state === 'title') {
+    if (e.code === 'Tab') { setMode(MODES.indexOf(gameMode) + 1); return; }
+    if (e.code === 'KeyC' && campaign) { continueCampaign(); return; }
+    if (e.code === 'KeyM' && !e.shiftKey) { /* mute handled above */ }
+    if (e.code === 'KeyU') { state = 'armory'; menuCursor = 0; return; }
+    if (e.code === 'KeyG') { state = 'medals'; return; }
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') setDifficulty(diffIdx - 1);
     if (e.code === 'ArrowRight' || e.code === 'KeyD') setDifficulty(diffIdx + 1);
     if (e.code === 'ArrowUp' || e.code === 'KeyW') setMission(missionSel - 1);
@@ -393,7 +511,7 @@ function onKeyPress(e) {
     if (e.code === 'KeyR') openManual();
     return;
   }
-  if (state === 'levelwin' || state === 'over' || state === 'victory') {
+  if (state === 'over' || state === 'victory' || state === 'vsover') {
     if (e.code === 'Enter' || e.code === 'Space') onClickOverlay();
     return;
   }
@@ -425,6 +543,9 @@ LEVELS.forEach((L, i) => {
   if (i >= 4) L.mix.push(['t_plane', 0.05]);
 });
 [0, 5, 6].forEach(i => { LEVELS[i].river = true; });
+// mini-bosses: must be destroyed to win the mission
+LEVELS[3].mini = { type: 'megatank', at: [0.88, 0.5], note: 'A MEGA TANK guards the far bunker.' };
+LEVELS[7].mini = { type: 't_bomber', at: [0.92, 0.3], note: 'The SNOW HAWK bomber is hunting your base!' };
 
 const START_CARRY = (idx = 0) => ({
   plastic: DIFF().plastic + idx * 120,
@@ -432,7 +553,25 @@ const START_CARRY = (idx = 0) => ({
 });
 function setDifficulty(i) { diffIdx = (i + 3) % 3; store.set('difficulty', diffIdx); sfx('order'); }
 function setMission(i) { missionSel = (i + LEVELS.length) % LEVELS.length; sfx('order'); }
-function deploy() { carry = START_CARRY(missionSel); newLevel(missionSel); }
+const MODES = ['campaign', 'coop', 'versus'];
+const MODE_NAMES = { campaign: 'Campaign', coop: 'Co-op', versus: 'Versus' };
+function setMode(i) { gameMode = MODES[(i + MODES.length) % MODES.length]; sfx('order'); }
+function deploy() {
+  if (gameMode !== 'campaign' && padCount() < 1) { toasts.push({ title: MODE_NAMES[gameMode], text: 'Connect a controller for Player 2', sub: 'Player 1 can use keyboard + mouse or touch', t: 3 }); sfx('deny'); return; }
+  carry = START_CARRY(missionSel); newLevel(missionSel);
+}
+function continueCampaign() {
+  if (!campaign) return;
+  diffIdx = campaign.diff ?? diffIdx; gameMode = campaign.mode === 'coop' && padCount() >= 1 ? 'coop' : 'campaign';
+  carry = { plastic: campaign.carry.plastic, squad: campaign.carry.squad.slice() };
+  newLevel(campaign.mission);
+}
+function leaveArmory() {
+  if (state === 'levelwin') newLevel(G.idx + 1);
+  else state = 'title';
+  sfx('order');
+}
+const MENU_STATES = ['title', 'armory', 'medals', 'levelwin'];
 function openManual() { try { window.location.href = 'controls.html'; } catch (e) { /* navigation blocked */ } }
 let carry = START_CARRY();
 let levelStartCarry = null;
@@ -448,7 +587,8 @@ function spawn(type, x, y, extra) {
     cd: rand(0, 0.8), target: null, retarget: rand(0, 0.3), order: { type: 'follow' },
     flash: 0, stuck: 0, detourT: 0, detourDir: 1, anim: rand(0, 6), moving: false, lastHit: 0,
   };
-  if (T.team === 't') { u.hp = u.maxHp = Math.round(T.hp * DIFF().enemyHp); }
+  if (T.team === 't' && !(extra && extra.leader)) { u.hp = u.maxHp = Math.round(T.hp * DIFF().enemyHp); }
+  else if (!T.building) { u.hp = u.maxHp = Math.round(T.hp * (1 + 0.15 * upg('armor'))); }
   if (extra) Object.assign(u, extra);
   G.units.push(u);
   return u;
@@ -460,16 +600,35 @@ function newLevel(idx) {
   levelStartCarry = { plastic: carry.plastic, squad: carry.squad.slice() };
   G = {
     L, idx, units: [], bullets: [], parts: [], obs: [], pickups: [], decals: [], texts: [], pings: [],
-    jobs: [], buildMode: false, buildIdx: 0,
+    jobs: [], buildMode: false, buildIdx: 0, mode: gameMode,
     time: 0, shake: 0, plastic: carry.plastic, lives: DIFF().lives, cam: { x: 400, y: 1000 }, sel: new Set(), mines: [], outposts: [],
     banner: null, respawn: 0, boss: null, endT: 0, waveT: L.waveT * DIFF().wave, kills: 0, lost: 0, ground: null,
   };
   WORLD_W = L.w; WORLD_H = L.h;
   const midY = WORLD_H / 2;
   G.hq = spawn('hq', 330, midY);
-  G.sarge = spawn('sarge', 460, midY, { slot: 0, ammo: SARGE_SLOTS.map(sl => sl.ammo), regenT: 0, driving: null });
-  carry.squad.forEach((t, i) => { const a = i * 2.4, rr = TYPES[t].vehicle ? 120 : 60; spawn(t, 450 + Math.cos(a) * rr, midY + Math.sin(a) * rr); });
-  G.bunkers = L.bunkers.map(([fx, fy]) => {
+  const newPlayer = (pid, x, y, team) => spawn('sarge', x, y, { team, isPlayer: true, pid, slot: 0, regenT: 0, driving: null, padAimA: team === 't' ? Math.PI : 0, rc: 0,
+    ammo: SARGE_SLOTS.map(sl => sl.ammo === Infinity ? Infinity : Math.round(sl.ammo * (1 + 0.3 * upg('ammo')))) });
+  G.sarge = newPlayer(0, 460, midY, 'g'); G.sarge.home = G.hq;
+  G.players = [G.sarge];
+  G.plastic += 60 * upg('income');
+  if (G.mode !== 'campaign') {
+    // second player: P2 always uses a controller; with two controllers P1 takes the first one
+    const vs = G.mode === 'versus';
+    G.p2 = newPlayer(1, vs ? WORLD_W - 460 : 460, vs ? midY : midY + 70, vs ? 't' : 'g');
+    readPads(); G.p2.padIdx = padCount() >= 2 ? 1 : 0;
+    G.players.push(G.p2);
+    if (vs) {
+      G.hq.maxHp = G.hq.hp = 2500;
+      G.hq2 = spawn('hq', WORLD_W - 330, midY, { team: 't' }); G.hq2.maxHp = G.hq2.hp = 2500;
+      G.p2.home = G.hq2; G.plastic = 300; G.plastic2 = 300; G.lives = Infinity;
+    } else G.p2.home = G.hq;
+    G.views = [{ pl: G.sarge, cam: { x: G.sarge.x, y: G.sarge.y } }, { pl: G.p2, cam: { x: G.p2.x, y: G.p2.y } }];
+  }
+  const startSquad = G.mode === 'versus' ? ['rifle', 'rifle', 'bazooka', 'jeep'] : carry.squad;
+  startSquad.forEach((t, i) => { const a = i * 2.4, rr = TYPES[t].vehicle ? 120 : 60; spawn(t, 450 + Math.cos(a) * rr, midY + Math.sin(a) * rr, { leader: G.sarge }); });
+  if (G.mode === 'versus') startSquad.forEach((t, i) => { const a = i * 2.4, rr = TYPES[t].vehicle ? 120 : 60; spawn(t, WORLD_W - 450 + Math.cos(a) * rr, midY + Math.sin(a) * rr, { team: 't', leader: G.p2 }); });
+  G.bunkers = (G.mode === 'versus' ? [] : L.bunkers).map(([fx, fy]) => {
     const x = fx * WORLD_W, y = fy * WORLD_H;
     const b = spawn('bunker', x, y, { spawnT: rand(2, L.spawnRate * DIFF().spawn), kids: 0 });
     for (let i = 0; i < L.guards; i++) {
@@ -478,15 +637,23 @@ function newLevel(idx) {
     }
     return b;
   });
-  if (L.boss) {
+  if (L.boss && G.mode !== 'versus') {
     const bx = L.boss[0] * WORLD_W, by = L.boss[1] * WORLD_H;
     G.boss = spawn('boss', bx, by, { home: { x: bx, y: by }, shield: true, phaseT: 4, attack: null, atkT: 0, charge: 0 });
   }
-  genObstacles(rng, L);
+  G.minis = [];
+  if (L.mini && G.mode !== 'versus') {
+    const mx = L.mini.at[0] * WORLD_W, my = L.mini.at[1] * WORLD_H;
+    const m = spawn(L.mini.type, mx, my, { home: { x: mx, y: my }, miniboss: true, raider: L.mini.type === 't_bomber', wanderT: 0, wx: mx, wy: my, cd2: 0 });
+    G.minis.push(m);
+  }
+  genObstacles(rng, G.mode === 'versus' ? { ...L, bunkers: [[(WORLD_W - 330) / WORLD_W, 0.5]], boss: null, mini: null } : L);
   G.ground = renderGround(L.theme, rng);
   G.cam.x = G.sarge.x; G.cam.y = G.sarge.y;
-  banner(L.name, L.brief, 4.5);
+  if (G.mode === 'versus') banner('VERSUS: ' + L.name, 'Green (P1) vs Tan (P2). Destroy the enemy HQ to win!', 5);
+  else banner(L.name + (G.mode === 'coop' ? ' (co-op)' : ''), L.mini ? L.brief + ' ' + L.mini.note : L.brief, 5);
   commandMode = false; moveStick = aimStick = null;
+  if (G.p2 && G.p2.padIdx === 0) padMode = false;   // P1 is on keyboard/mouse or touch
   state = 'play';
 }
 
@@ -525,7 +692,7 @@ function genObstacles(rng, L) {
       const cx = clamp(p.x, o.x, o.x + o.w), cy = clamp(p.y, o.y, o.y + o.h);
       if (Math.hypot(p.x - cx, p.y - cy) < p.r) return false;
     }
-    if (G.river) for (const q of G.river.segs) if (o.x < q.x + q.w + 40 && o.x + o.w + 40 > q.x && o.y < q.y + q.h && o.y + o.h > q.y) return false;
+    if (G.river) for (const yy of [o.y, o.y + o.h / 2, o.y + o.h]) { const p = riverAt(yy); if (o.x < p.x + p.hw + 45 && o.x + o.w > p.x - p.hw - 45) return false; }
     for (const q of G.obs) {
       if (o.x < q.x + q.w + 50 && o.x + o.w + 50 > q.x && o.y < q.y + q.h + 50 && o.y + o.h + 50 > q.y) return false;
     }
@@ -542,9 +709,18 @@ function genObstacles(rng, L) {
       const seg = { kind: 'water', x: x - wid / 2, y: i * segH, w: wid, h: Math.min(segH, WORLD_H - i * segH), hp: null, ford: fords.has(i), bridged: false };
       for (const p of protect) { const cx = clamp(p.x, seg.x, seg.x + seg.w), cy = clamp(p.y, seg.y, seg.y + seg.h); if (Math.hypot(p.x - cx, p.y - cy) < p.r) seg.ford = true; }
       segs.push(seg);
-      if (!seg.ford) G.obs.push(seg);
     }
-    G.river = { segs, segH, wid };
+    // smooth, organic course: Catmull-Rom through the segment centres plus a gentle wiggle; width breathes
+    const step = 20, pts = [], ph = rng() * 6, ph2 = rng() * 6;
+    const cxs = segs.map(sg => sg.x + sg.w / 2), P = k => cxs[clamp(k, 0, cxs.length - 1)];
+    for (let y = 0; y <= WORLD_H + step; y += step) {
+      const f = y / segH - 0.5, i = Math.floor(f), t = f - i;
+      const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+      const x = 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t) + 18 * Math.sin(y / 150 + ph);
+      const hw = wid / 2 * (0.86 + 0.12 * Math.sin(y / 240 + ph2) + 0.07 * Math.sin(y / 87 + ph));
+      pts.push({ x, y, hw });
+    }
+    G.river = { segs, segH, wid, step, pts };
   }
   let tries = 0, placed = 0;
   while (placed < L.obstacles && tries < 9000) {
@@ -585,6 +761,20 @@ function genObstacles(rng, L) {
       x += Math.cos(a) * sz * 0.85; y += Math.sin(a) * sz * 0.85;
     }
   }
+  // terrain hazards: patches of ice, oil, quicksand, mud or sticky spills
+  G.hazards = [];
+  const HZ = { arctic: ['ice', 8, 200, 380], tundra: ['ice', 5, 160, 300], concrete: ['oil', 6, 110, 200], desert: ['quicksand', 6, 120, 210],
+    sand: ['quicksand', 4, 110, 180], grass: ['mud', 5, 120, 220], mountain: ['mud', 5, 120, 220], tile: ['spill', 5, 90, 170], bedroom: ['spill', 5, 100, 190] }[L.theme];
+  if (HZ) {
+    const [type, count, rmin, rmax] = HZ;
+    for (let n = 0, tries = 0; n < count * Math.max(1, WORLD_W * WORLD_H / 1.6e7) && tries < 400; tries++) {
+      const rx = rmin + rng() * (rmax - rmin), ry = rx * (0.45 + rng() * 0.35), x = WORLD_W * (0.15 + rng() * 0.8), y = 150 + rng() * (WORLD_H - 300);
+      if (protect.some(p => Math.hypot(p.x - x, p.y - y) < p.r + rx)) continue;
+      if (G.river) { const c = riverAt(y); if (Math.abs(c.x - x) < c.hw + rx + 30) continue; }
+      if (G.hazards.some(h => Math.hypot(h.x - x, h.y - y) < h.rx + rx)) continue;
+      G.hazards.push({ type, x, y, rx, ry, rot: rng() * Math.PI, seed: rng() }); n++;
+    }
+  }
   // sandbag walls guarding each bunker, facing the player's HQ
   for (const b of bpos) {
     const face = Math.atan2(hq.y - b.y, hq.x - b.x);
@@ -593,6 +783,7 @@ function genObstacles(rng, L) {
       const cx = b.x + Math.cos(a) * 125, cy = b.y + Math.sin(a) * 125;
       const vert = Math.abs(Math.cos(a)) > 0.6;
       const w = vert ? 28 : 90, h = vert ? 90 : 28;
+      if (G.river) { const p = riverAt(cy); if (Math.abs(cx - p.x) < p.hw + 60) continue; }
       G.obs.push({ kind: 'sandbag', x: cx - w / 2, y: cy - h / 2, w, h, hp: 180, maxHp: 180, seed: Math.random() });
     }
   }
@@ -738,6 +929,18 @@ function renderGround(theme, rng) {
     }
     for (let i = 0; i < 5000 * k; i++) { g.fillStyle = rng() < 0.5 ? 'rgba(255,240,200,0.5)' : 'rgba(120,90,50,0.4)'; g.fillRect(rng() * WORLD_W, rng() * WORLD_H, 2, 2); }
   }
+  if (G.river) { // damp, darker soil along both banks so the water sits in the land
+    const band = (extra, col) => {
+      g.fillStyle = col; g.beginPath();
+      const pts = G.river.pts;
+      pts.forEach((p, i) => i ? g.lineTo(p.x - p.hw - extra, p.y) : g.moveTo(p.x - p.hw - extra, p.y));
+      for (let i = pts.length - 1; i >= 0; i--) g.lineTo(pts[i].x + pts[i].hw + extra, pts[i].y);
+      g.closePath(); g.fill();
+    };
+    const mud = { grass: ['rgba(70,60,30,0.28)', 'rgba(95,75,45,0.6)'], mountain: ['rgba(60,55,40,0.3)', 'rgba(90,80,60,0.6)'], tundra: ['rgba(70,65,45,0.3)', 'rgba(105,95,70,0.6)'] }[theme] || ['rgba(70,60,30,0.28)', 'rgba(95,75,45,0.6)'];
+    band(46, mud[0]); band(16, mud[1]);
+    for (let i = 0; i < G.river.pts.length; i += 2) { const p = G.river.pts[i]; for (const side of [-1, 1]) { g.fillStyle = rng() < 0.5 ? 'rgba(140,130,110,0.6)' : 'rgba(60,50,35,0.5)'; g.beginPath(); g.ellipse(p.x + side * (p.hw + 6 + rng() * 14), p.y + rng() * 20, 3 + rng() * 5, 2 + rng() * 4, rng() * 3, 0, TAU); g.fill(); } }
+  }
   // the "edge of the battlefield"
   g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 24; g.strokeRect(0, 0, WORLD_W, WORLD_H);
   return c;
@@ -747,8 +950,14 @@ function renderGround(theme, rng) {
 function banner(title, sub, t = 3) { G.banner = { title, sub, t, max: t }; }
 function floatText(x, y, txt, col) { G.texts.push({ x, y, txt, col, t: 1.2 }); }
 function squad() { return G.units.filter(u => u.team === 'g' && !u.dead && RECRUITS.includes(u.type)); }
-function cmdUnits() {
-  const s = squad();
+const leaderOf = u => u.leader || G.sarge;
+function squadOf(pl) { return G.units.filter(u => !u.dead && RECRUITS.includes(u.type) && u.team === pl.team && leaderOf(u) === pl); }
+function cmdUnits(pl = G.sarge) {
+  if (pl !== G.sarge || multiplayer()) {
+    const own = squadOf(pl).filter(u => !u.driver);
+    if (pl !== G.sarge || !G.sel.size) return own;
+  }
+  const s = multiplayer() ? squadOf(pl) : squad();
   if (G.sel.size === 0) return s;
   const free = s.filter(u => !u.driver);
   const sel = free.filter(u => G.sel.has(u.id));
@@ -779,18 +988,87 @@ function collideObs(u) {
       }
     }
   }
+  if (G.river && !u.T.air) {
+    const sg = riverSegFor(u.y);
+    if (!sg.ford && !sg.bridged) {
+      const RV = G.river, i = Math.round(u.y / RV.step);
+      let best = null, bd = Infinity;
+      for (let k = i - 3; k <= i + 3; k++) { const p = RV.pts[k]; if (!p) continue; const d = Math.hypot(u.x - p.x, u.y - p.y) - p.hw; if (d < bd) { bd = d; best = p; } }
+      if (best && bd < u.r) {
+        let nx = u.x - best.x, ny = u.y - best.y, l = Math.hypot(nx, ny);
+        if (l < 1e-3) { nx = 1; ny = 0; l = 1; }
+        u.x = best.x + nx / l * (best.hw + u.r); u.y = best.y + ny / l * (best.hw + u.r);
+      }
+    }
+  }
   u.x = clamp(u.x, u.r + 6, WORLD_W - u.r - 6); u.y = clamp(u.y, u.r + 6, WORLD_H - u.r - 6);
 }
-function riverX(y) { const R = G.river, s = R.segs[clamp(Math.floor(y / R.segH), 0, R.segs.length - 1)]; return s.x + s.w / 2; }
+// river centre and half-width at a given y (linear between 20px samples)
+// ---------- terrain hazards ----------
+const HAZARD = {
+  ice: { slip: true, label: 'Slippery ice!' }, oil: { slip: true, label: 'Oil slick!' },
+  quicksand: { slow: 0.4, label: 'Quicksand!' }, mud: { slow: 0.6, label: 'Deep mud!' }, spill: { slow: 0.6, label: 'Sticky spill!' },
+};
+function hazardAt(x, y) {
+  if (!G.hazards) return null;
+  for (const h of G.hazards) {
+    const dx = x - h.x, dy = y - h.y, c = Math.cos(-h.rot), s = Math.sin(-h.rot);
+    const lx = dx * c - dy * s, ly = dx * s + dy * c;
+    if ((lx * lx) / (h.rx * h.rx) + (ly * ly) / (h.ry * h.ry) < 1) return h;
+  }
+  return null;
+}
+function applyHazards(dt) {
+  if (!G.hazards || !G.hazards.length) return;
+  for (const u of G.units) {
+    if (u.T.air || u.T.building || u._ox === undefined) continue;
+    const h = hazardAt(u.x, u.y), H = h && HAZARD[h.type];
+    const vx = (u.x - u._ox) / dt, vy = (u.y - u._oy) / dt;
+    if (H && H.slow) { u.x = u._ox + (u.x - u._ox) * H.slow; u.y = u._oy + (u.y - u._oy) * H.slow; u.svx = u.svy = 0; }
+    else if (H && H.slip) {
+      // low traction: keep most of last frame's momentum, so units slide and overshoot
+      u.svx = (u.svx || 0) + (vx - (u.svx || 0)) * 0.05; u.svy = (u.svy || 0) + (vy - (u.svy || 0)) * 0.05;
+      u.x = u._ox + u.svx * dt; u.y = u._oy + u.svy * dt; collideObs(u);
+    } else { u.svx = vx; u.svy = vy; }
+    if (H && (u.isPlayer || u.driver) && !G.hazardSeen?.[h.type]) { (G.hazardSeen ||= {})[h.type] = 1; floatText(u.x, u.y - 30, H.label, '#ffe9a0'); }
+  }
+  for (const s of G.players) if (s.driving) { s.x = s.driving.x; s.y = s.driving.y; }
+}
+function drawHazards(vis) {
+  for (const h of G.hazards || []) {
+    if (!vis(h.x, h.y, h.rx)) continue;
+    ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(h.rot);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, h.rx);
+    const col = { ice: ['rgba(190,230,252,0.95)', 'rgba(110,175,220,0.9)'], oil: ['rgba(20,18,22,0.92)', 'rgba(50,45,60,0.75)'], quicksand: ['rgba(214,180,120,0.95)', 'rgba(170,135,80,0.85)'],
+      mud: ['rgba(70,50,30,0.92)', 'rgba(100,75,45,0.8)'], spill: ['rgba(230,120,40,0.65)', 'rgba(150,60,140,0.45)'] }[h.type];
+    g.addColorStop(0, col[0]); g.addColorStop(1, col[1]);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, h.rx, h.ry, 0, 0, TAU); ctx.fill();
+    if (h.type === 'ice') { ctx.strokeStyle = 'rgba(80,140,190,0.7)'; ctx.lineWidth = 3; ctx.stroke(); }
+    ctx.lineWidth = 2;
+    if (h.type === 'ice') { ctx.strokeStyle = 'rgba(255,255,255,0.8)'; for (let i = 0; i < 5; i++) { const a = h.seed * 9 + i; ctx.beginPath(); ctx.moveTo(Math.cos(a) * h.rx * 0.2, Math.sin(a) * h.ry * 0.2); ctx.lineTo(Math.cos(a + 0.4) * h.rx * 0.8, Math.sin(a + 0.4) * h.ry * 0.8); ctx.stroke(); } }
+    else if (h.type === 'oil') { for (const [c2, k] of [['rgba(120,60,200,0.35)', 0.7], ['rgba(40,160,180,0.3)', 0.5], ['rgba(220,200,60,0.25)', 0.3]]) { ctx.strokeStyle = c2; ctx.beginPath(); ctx.ellipse(h.rx * 0.1, -h.ry * 0.1, h.rx * k, h.ry * k, 0.3, 0, TAU); ctx.stroke(); } }
+    else if (h.type === 'quicksand') { ctx.strokeStyle = 'rgba(120,90,50,0.55)'; const t = G.time * 0.6; for (let i = 1; i < 6; i++) { ctx.beginPath(); ctx.ellipse(0, 0, h.rx * i / 6, h.ry * i / 6, t * (i % 2 ? 1 : -1) * 0.2, 0, TAU * 0.8); ctx.stroke(); } }
+    else if (h.type === 'mud') { ctx.fillStyle = 'rgba(140,110,70,0.5)'; for (let i = 0; i < 9; i++) { const a = h.seed * 7 + i * 0.7; ellipse(Math.cos(a) * h.rx * 0.55, Math.sin(a) * h.ry * 0.55, 10 + (i % 3) * 6, 6 + (i % 2) * 4); } }
+    else { ctx.fillStyle = 'rgba(255,255,255,0.3)'; ellipse(-h.rx * 0.3, -h.ry * 0.3, h.rx * 0.25, h.ry * 0.15); }
+    ctx.restore();
+  }
+}
+function riverAt(y) {
+  const R = G.river, f = clamp(y / R.step, 0, R.pts.length - 1.001), i = Math.floor(f), t = f - i, a = R.pts[i], b = R.pts[i + 1];
+  return { x: a.x + (b.x - a.x) * t, hw: a.hw + (b.hw - a.hw) * t };
+}
+function riverX(y) { return riverAt(y).x; }
+function riverSegFor(y) { const R = G.river; return R.segs[clamp(Math.floor(y / R.segH), 0, R.segs.length - 1)]; }
+function riverTangent(y) { const a = riverAt(y - 20), b = riverAt(y + 20); return Math.atan2(40, b.x - a.x); }
 function riverRedirect(u, tx, ty) {
   const R = G.river, su = Math.sign(u.x - riverX(u.y)), st = Math.sign(tx - riverX(ty));
   if (su === st || !su || !st) return null;
   let best = null, bd = Infinity;
   for (const s of R.segs) { if (!(s.ford || s.bridged)) continue; const cy = s.y + s.h / 2, d = Math.abs(cy - u.y) + Math.abs(cy - ty); if (d < bd) { bd = d; best = s; } }
   if (!best) return null;
-  const cx = best.x + best.w / 2, cy = best.y + best.h / 2;
-  if (Math.abs(u.y - cy) < best.h / 2 - 22) return { x: cx + st * R.wid, y: cy };   // in the crossing lane: go across
-  return { x: cx + su * R.wid, y: cy };                                              // walk to the near bank first
+  const cy = best.y + best.h / 2, c = riverAt(cy), off = c.hw + 70;
+  if (Math.abs(u.y - cy) < best.h / 2 - 22) return { x: c.x + st * off, y: cy };   // in the crossing lane: go across
+  return { x: c.x + su * off, y: cy };                                             // walk to the near bank first
 }
 function steer(u, tx, ty, dt, sp) {
   if (G.river && !u.T.air) { const r = riverRedirect(u, tx, ty); if (r) { tx = r.x; ty = r.y; } }
@@ -826,7 +1104,7 @@ function fire(u, wkey, tx, ty, extra) {
   const off = u.r + (u.T.kind === 'tank' ? 16 : 6);
   const mx = u.x + Math.cos(base) * off, my = u.y + Math.sin(base) * off;
   if (W.kind === 'mine') {
-    G.mines.push({ x: u.x - Math.cos(u.a) * (u.r + 8), y: u.y - Math.sin(u.a) * (u.r + 8), team: u.team, arm: 1, dmg: W.dmg, splash: W.splash });
+    G.mines.push({ x: u.x - Math.cos(u.a) * (u.r + 8), y: u.y - Math.sin(u.a) * (u.r + 8), team: u.team, arm: 1, dmg: W.dmg, splash: W.splash, owner: 'mine' });
     sfx(W.snd, u.x, u.y);
     return;
   }
@@ -834,14 +1112,14 @@ function fire(u, wkey, tx, ty, extra) {
     const d = clamp(Math.hypot(tx - u.x, ty - u.y), W.minRange || 0, W.range);
     const ga = base + (W.arc ? rand(-0.05, 0.05) : 0);
     G.bullets.push({ kind: 'grenade', team: u.team, sx: mx, sy: my, tx: u.x + Math.cos(ga) * d, ty: u.y + Math.sin(ga) * d, t: 0,
-      dur: W.arc ? 0.7 + d / 650 : 0.35 + d / 900, h: W.arc || 60, dmg: W.dmg, splash: W.splash, x: mx, y: my });
+      dur: W.arc ? 0.7 + d / 650 : 0.35 + d / 900, h: W.arc || 60, dmg: W.dmg, splash: W.splash, x: mx, y: my, owner: u.id });
   } else {
     for (let i = 0; i < (W.pellets || 1); i++) {
       if (i) a = base + rand(-(W.spread || 0), W.spread || 0);
       const spd = W.spd * (W.pellets ? rand(0.85, 1.1) : 1);
       const b = { kind: W.kind, x: mx, y: my, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: W.life || W.range / W.spd * 1.1,
         maxLife: W.life || W.range / W.spd * 1.1, team: u.team, dmg: W.dmg, splash: W.splash || 0,
-        hits: W.kind === 'flame' || W.pierce ? new Set() : null, pierce: W.pierce || 0, sniper: !!W.pierce };
+        hits: W.kind === 'flame' || W.pierce ? new Set() : null, pierce: W.pierce || 0, sniper: !!W.pierce, owner: u.id };
       if (extra) Object.assign(b, extra);
       G.bullets.push(b);
     }
@@ -851,24 +1129,42 @@ function fire(u, wkey, tx, ty, extra) {
   sfx(W.snd, u.x, u.y);
 }
 
-function damage(u, amt, fromTeam) {
+function damage(u, amt, fromTeam, owner) {
   if (u.dead) return;
   if (u.type === 'boss' && u.shield) {
     if (Math.random() < 0.3) { addPart({ x: u.x + rand(-30, 30), y: u.y + rand(-30, 30), vx: 0, vy: 0, life: 0.3, size: 10, col: '#7fe8ff', type: 'flash' }); sfx('shield', u.x, u.y); }
     return;
   }
-  if (fromTeam === 't') amt *= DIFF().enemyDmg;
+  if (fromTeam === 't' && G.mode !== 'versus') amt *= DIFF().enemyDmg;
+  if (fromTeam === 'g') amt *= 1 + 0.1 * upg('damage');
   u.hp -= amt; u.flash = 0.08; u.lastHit = G.time;
   if (u === G.sarge) { G.sarge.regenT = 4; if (amt > 5) { sfx('hurt'); rumble(0.5, 0.3, 120); } }
   if (u.driver && amt > 5) rumble(0.4, 0.4, 90);
-  if (u.hp <= 0) kill(u);
+  if (u.hp <= 0) kill(u, owner);
 }
 
-function kill(u) {
+function kill(u, owner) {
   u.dead = true;
-  if (u.team === 't') {
+  if (u.team === 't' && G.mode !== 'versus') {
+    award('first'); bump('kills');
+    if (u.type === 'bunker') bump('bunkers');
+    if (owner === 'mine') bump('mineKills');
+    else if (owner === 'run') bump('runovers');
+    else if (owner) {
+      const k = G.units.find(x => x.id === owner);
+      if (k && k.driver && k.T.kind === 'plane') bump('planeKills');
+      if (k && k.driver && k.T.kind === 'tank') bump('tankKills');
+    }
+    if (u.miniboss) award('giant');
+    if (u.type === 'boss') award('overlord');
+  }
+  if (G.mode === 'versus' && !u.T.building) {
+    const v = u.T.bounty || (u.isPlayer ? 60 : Math.round((u.T.cost || 50) * 0.4));
+    G[u.team === 'g' ? 'plastic2' : 'plastic'] += v;
+    floatText(u.x, u.y - 20, '+' + v, u.team === 'g' ? '#f0d9a0' : '#bff27a');
+  } else if (u.team === 't') {
     G.kills++;
-    const b = Math.round((u.T.bounty || 0) * DIFF().bounty);
+    const b = Math.round((u.T.bounty || 0) * DIFF().bounty * (1 + 0.15 * upg('income')));
     if (b) { G.plastic += b; floatText(u.x, u.y - 20, '+' + b, '#bff27a'); }
     const src = G.units.find(x => x.id === u.src); if (src) src.kids--;
     if (!u.T.building && u.type !== 'boss') {
@@ -876,7 +1172,8 @@ function kill(u) {
       if (r < 0.1) G.pickups.push({ x: u.x, y: u.y, kind: 'hp', t: 25 });
       else if (r < 0.18) G.pickups.push({ x: u.x, y: u.y, kind: 'ammo', t: 25 });
     }
-  } else if (RECRUITS.includes(u.type)) { G.lost++; G.sel.delete(u.id); }
+  }
+  if (u.team === 'g' && RECRUITS.includes(u.type)) { G.lost++; G.sel.delete(u.id); }
   if (u.driver) {
     // vehicle destroyed under Sarge: bail out
     const s = u.driver; u.driver = null; s.driving = null;
@@ -903,20 +1200,30 @@ function kill(u) {
     else if (G.boss && !G.boss.dead) { G.boss.shield = false; banner('SHIELD DOWN!', 'The Tan Overlord is vulnerable. Take him out!', 3.5); sfx('alarm'); }
   }
   if (u.type === 'boss') banner('THE OVERLORD HAS FALLEN!', 'Plastic justice is served.', 4);
-  if (u === G.sarge) {
-    G.lives--;
-    if (G.lives > 0 && !G.hq.dead) { G.respawn = 4; banner('Sarge is down!', 'Redeploying from the nearest outpost...', 3); }
-    else { G.endT = 2.5; G.result = 'over'; G.reason = G.hq.dead ? 'HQ destroyed' : 'Sarge is out of lives'; }
+  if (u.miniboss) banner(u.T.title + ' DESTROYED!', 'Giant down.', 3.5);
+  if (u.isPlayer) {
+    const who = multiplayer() ? `Player ${u.pid + 1}` : 'Sarge';
+    if (G.mode === 'versus') { u.respawn = 5; banner('', `${who} is down! Redeploying in 5 s`, 2); }
+    else {
+      G.sargeDowned = true;
+      G.lives--;
+      if (G.lives > 0 && !G.hq.dead) { u.respawn = 4; banner(`${who} is down!`, 'Redeploying from the nearest outpost...', 3); }
+      else if (!G.players.some(p => p !== u && !p.dead)) { G.endT = 2.5; G.result = 'over'; G.reason = G.hq.dead ? 'HQ destroyed' : 'Out of lives'; }
+      else banner(`${who} is out of lives`, 'Keep fighting!', 3);
+    }
   }
-  if (u === G.hq) { G.endT = 2.5; G.result = 'over'; G.reason = 'Your HQ was destroyed'; banner('HQ DESTROYED', '', 3); }
+  if (G.mode === 'versus' && (u === G.hq || u === G.hq2)) {
+    G.winner = u === G.hq ? 2 : 1; G.endT = 3; G.result = 'versus';
+    banner(G.winner === 1 ? 'GREEN WINS!' : 'TAN WINS!', 'The enemy HQ is rubble.', 3);
+  } else if (u === G.hq) { G.endT = 2.5; G.result = 'over'; G.reason = 'Your HQ was destroyed'; banner('HQ DESTROYED', '', 3); }
 }
 
-function explode(x, y, R, dmg, team) {
+function explode(x, y, R, dmg, team, owner) {
   for (const u of G.units) {
     if (u.dead || u.team === team) continue;
     const d = Math.max(0, dist(u, { x, y }) - u.r);
     if (d < R) {
-      damage(u, dmg * (1 - 0.6 * d / R), team);
+      damage(u, dmg * (1 - 0.6 * d / R), team, owner);
       if (!u.T.building && u.type !== 'boss' && !u.dead) {
         const a = Math.atan2(u.y - y, u.x - x); u.x += Math.cos(a) * 12; u.y += Math.sin(a) * 12; collideObs(u);
       }
@@ -962,14 +1269,17 @@ const MAX_PARTS = 900;
 function addPart(p) { if (G.parts.length < MAX_PARTS) { p.max = p.life; G.parts.push(p); } }
 
 // ---------- player commands ----------
-function recruit(type) {
-  const T = TYPES[type];
-  if (G.hq.dead) return;
-  if (squad().length >= MAX_SQUAD) { banner('', 'Squad is at max size (' + MAX_SQUAD + ')', 1.5); sfx('deny'); return; }
-  if (G.plastic < T.cost) { banner('', 'Need ' + T.cost + ' plastic for a ' + T.name, 1.5); sfx('deny'); return; }
-  G.plastic -= T.cost;
-  const sp = spawnPoint(G.sarge), a = rand(0, TAU), off = sp === G.hq ? 70 : 55;
-  const u = spawn(type, sp.x + Math.cos(a) * off, sp.y + Math.sin(a) * off);
+// plastic: one shared purse, except in Versus where Tan has its own
+const purseKey = pl => (G.mode === 'versus' && pl.team === 't') ? 'plastic2' : 'plastic';
+function recruit(type, pl = G.sarge) {
+  const T = TYPES[type], key = purseKey(pl), home = pl.home || G.hq;
+  if (home.dead) return;
+  const size = multiplayer() ? squadOf(pl).length : squad().length, cap = multiplayer() ? Math.ceil(MAX_SQUAD * 0.75) : MAX_SQUAD;
+  if (size >= cap) { banner('', 'Squad is at max size (' + cap + ')', 1.5); sfx('deny'); return; }
+  if (G[key] < T.cost) { banner('', (multiplayer() ? `P${pl.pid + 1}: ` : '') + 'Need ' + T.cost + ' plastic for a ' + T.name, 1.5); sfx('deny'); return; }
+  G[key] -= T.cost;
+  const sp = spawnPoint(pl, pl.team), a = rand(0, TAU), off = sp === home ? 70 : 55;
+  const u = spawn(type, sp.x + Math.cos(a) * off, sp.y + Math.sin(a) * off, { team: pl.team, leader: pl });
   if (!T.air) collideObs(u);
   u.order = { type: 'follow' };
   floatText(u.x, u.y - 24, T.name + ' ready!', '#bff27a');
@@ -982,7 +1292,7 @@ function toggleBuild(on) {
   commandMode = false;
   sfx('order');
 }
-function riverSegAt(x, y) { if (!G.river) return null; for (const s of G.river.segs) if (inRect(x, y, s)) return s; return null; }
+function riverSegAt(x, y) { if (!G.river || y < 0 || y > WORLD_H) return null; const p = riverAt(y); return Math.abs(x - p.x) < p.hw + 12 ? riverSegFor(y) : null; }
 function buildCheck(S, x, y) {
   if (!squad().some(u => u.type === 'engineer')) return 'Recruit an Engineer first (' + (touchMode || padMode ? 'recruit list' : 'R') + ')';
   if (G.plastic < S.cost) return 'Need ' + S.cost + ' plastic for a ' + S.name;
@@ -998,12 +1308,13 @@ function placeBuild(x, y) {
   if (err) { banner('', err, 1.8); sfx('deny'); return; }
   G.plastic -= S.cost;
   const s = G.sarge, from = s.driving || s;
-  const job = { id: S.id, name: S.name, x, y, vert: Math.abs(x - from.x) > Math.abs(y - from.y), progress: 0, need: S.time, eng: null };
+  const job = { id: S.id, name: S.name, x, y, vert: Math.abs(x - from.x) > Math.abs(y - from.y), progress: 0, need: S.time / (1 + 0.3 * upg('build')), eng: null };
   if (S.id === 'bridge') {
     const seg = riverSegAt(x, y);
-    job.seg = seg; job.x = seg.x + seg.w / 2; job.y = seg.y + seg.h / 2;
+    job.y = seg.y + seg.h / 2; const c = riverAt(job.y);
+    job.seg = seg; job.x = c.x;
     const side = Math.sign(from.x - job.x) || -1;
-    job.wx = job.x + side * (seg.w / 2 + 24); job.wy = job.y;  // engineers work from the bank
+    job.wx = job.x + side * (c.hw + 26); job.wy = job.y;  // engineers work from the bank
   } else { job.wx = x; job.wy = y; }
   G.jobs.push(job);
   G.pings.push({ x: job.x, y: job.y, t: 0.6, col: '#ffd76a' });
@@ -1037,28 +1348,30 @@ function completeJob(j) {
   } else if (j.id === 'pill') {
     spawn('gpill', j.x, j.y);
   } else if (j.id === 'mines') {
-    for (let i = 0; i < 7; i++) { const a = i / 6 * TAU, r = i ? 46 : 0; G.mines.push({ x: j.x + Math.cos(a) * r, y: j.y + Math.sin(a) * r, team: 'g', arm: 1, dmg: 130, splash: 90 }); }
+    for (let i = 0; i < 7; i++) { const a = i / 6 * TAU, r = i ? 46 : 0; G.mines.push({ x: j.x + Math.cos(a) * r, y: j.y + Math.sin(a) * r, team: 'g', arm: 1, dmg: 130, splash: 90, owner: 'mine' }); }
   } else if (j.id === 'bridge') {
-    j.seg.bridged = true; j.seg.dead = true;
+    j.seg.bridged = true; award('bridge');
   }
   for (const u of G.units) if (!u.T.air && !u.T.building && dist(u, j) < 80) collideObs(u);
   floatText(j.x, j.y - 30, j.name + ' built!', '#bff27a');
+  bump('builds');
   sfx('recruit');
 }
 
 // HQ or the outpost closest to `near`, where recruits arrive and Sarge redeploys
-function spawnPoint(near) {
+function spawnPoint(near, team = 'g') {
+  if (team === 't') return G.hq2 || G.hq;
   let best = G.hq, bd = Infinity;
   for (const p of [G.hq, ...G.outposts]) { const d = dist(p, near); if (d < bd) { bd = d; best = p; } }
   return best;
 }
-function orderFollow() {
-  for (const u of cmdUnits()) u.order = { type: 'follow' };
-  if (G.sarge && !G.sarge.dead) G.pings.push({ x: G.sarge.x, y: G.sarge.y, t: 0.6, col: '#9ef06a' });
+function orderFollow(pl = G.sarge) {
+  for (const u of cmdUnits(pl)) u.order = { type: 'follow' };
+  if (!pl.dead) G.pings.push({ x: pl.x, y: pl.y, t: 0.6, col: '#9ef06a' });
   sfx('order');
 }
-function orderHold() {
-  for (const u of cmdUnits()) u.order = { type: 'hold', x: u.x, y: u.y };
+function orderHold(pl = G.sarge) {
+  for (const u of cmdUnits(pl)) u.order = { type: 'hold', x: u.x, y: u.y };
   sfx('order');
 }
 function rightClick() {
@@ -1069,11 +1382,11 @@ function rightClick() {
   }
   orderAt(wx, wy);
 }
-function orderAt(wx, wy) {
-  const units = cmdUnits();
+function orderAt(wx, wy, pl = G.sarge) {
+  const units = cmdUnits(pl);
   if (!units.length) return;
   let tgt = null;
-  for (const o of G.units) if (!o.dead && o.team === 't' && Math.hypot(o.x - wx, o.y - wy) < o.r + 12) tgt = o;
+  for (const o of G.units) if (!o.dead && o.team !== pl.team && Math.hypot(o.x - wx, o.y - wy) < o.r + 12) tgt = o;
   if (tgt) {
     for (const u of units) u.order = u.type === 'medic' ? { type: 'follow' } : { type: 'attack', target: tgt };
     G.pings.push({ x: tgt.x, y: tgt.y, t: 0.6, col: '#ff5a3c' });
@@ -1099,21 +1412,20 @@ function finishDrag() {
   }
   if (G.sel.size) sfx('order');
 }
-function cycleWeapon(dir) { const s = G.sarge; const n = SARGE_SLOTS.length; s.slot = (s.slot + dir + n) % n; }
+function cycleWeapon(dir, s = G.sarge) { const n = SARGE_SLOTS.length; s.slot = (s.slot + dir + n) % n; }
 
 // ---------- vehicles ----------
 function nearestFreeVehicle(s, maxD) {
   let best = null, bd = Infinity;
   for (const u of G.units) {
-    if (u.dead || u.team !== 'g' || !u.T.vehicle || u.driver) continue;
+    if (u.dead || u.team !== s.team || !u.T.vehicle || u.driver || u.miniboss) continue;
     const d = dist(u, s) - u.r - (u.T.kind === 'plane' ? 80 : 0);  // planes never stop, so give a wider grab range
     if (d > maxD) continue;
     if (d < bd) { bd = d; best = u; }
   }
   return best;
 }
-function toggleVehicle() {
-  const s = G.sarge;
+function toggleVehicle(s = G.sarge) {
   if (!G || s.dead) return;
   if (s.driving) {
     const v = s.driving;
@@ -1146,7 +1458,8 @@ const SARGE_SLOTS = [
 ];
 
 // Gathers move + aim + fire intent from whichever input is active (keyboard/mouse, touch, controller).
-function readInput(o, W, distAim) {
+function readInput(o, W, distAim, pl = G.sarge) {
+  if (pl !== G.sarge) return readPadInput(o, W, distAim, pl);
   let mx = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
   let my = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
   let mag = 1;
@@ -1159,7 +1472,7 @@ function readInput(o, W, distAim) {
   const aimFrom = (a, strength) => {
     const reach = distAim ? range * clamp(strength, 0.3, 1) : range * 0.9;
     aimX = o.x + Math.cos(a) * reach; aimY = o.y + Math.sin(a) * reach;
-    const t = range > 0 ? assistAim(o, a, range, 't') : null;
+    const t = range > 0 ? assistAim(o, a, range, enemyOf(pl.team)) : null;
     if (t && !distAim) { aimX = t.x; aimY = t.y; }
   };
   if (touchMode) {
@@ -1178,6 +1491,21 @@ function readInput(o, W, distAim) {
   return { mx, my, l, mag, aimX, aimY, fire };
 }
 
+// Player 2 (and Player 1 when two controllers are connected through pl.pad) read only their own controller
+function readPadInput(o, W, distAim, pl) {
+  const st = pl.pad;
+  if (!st) return { mx: 0, my: 0, l: 0, mag: 0, aimX: o.x + Math.cos(o.a) * 100, aimY: o.y + Math.sin(o.a) * 100, fire: false };
+  const mx = st.lx, my = st.ly, l = Math.hypot(mx, my), mag = Math.min(1, l * 1.15), range = W.range || 200;
+  const rl = Math.hypot(st.rx, st.ry);
+  if (rl > 0.3) pl.padAimA = Math.atan2(st.ry, st.rx);
+  else if (l) pl.padAimA = lerpAngle(pl.padAimA || 0, Math.atan2(my, mx), 0.15);
+  const a = pl.padAimA || 0, reach = distAim ? range * clamp(rl > 0.3 ? rl : 1, 0.3, 1) : range * 0.9;
+  let aimX = o.x + Math.cos(a) * reach, aimY = o.y + Math.sin(a) * reach;
+  const t = !distAim && range > 0 ? assistAim(o, a, range, enemyOf(pl.team)) : null;
+  if (t) { aimX = t.x; aimY = t.y; }
+  return { mx, my, l, mag, aimX, aimY, fire: st.rt };
+}
+
 // ---------- fixed-wing aircraft: always moving forward, turning at a limited rate ----------
 function turnToward(a, want, maxStep) { const d = lerpAngle(a, want, 1) - a; return a + clamp(d, -maxStep, maxStep); }
 function flyForward(u, dt) {
@@ -1188,11 +1516,12 @@ function flyForward(u, dt) {
   u.moving = true;
 }
 function dropBomb(u) {
-  G.bullets.push({ kind: 'bomb', team: u.team, sx: u.x, sy: u.y, tx: u.x + Math.cos(u.a) * 70, ty: u.y + Math.sin(u.a) * 70, x: u.x, y: u.y, t: 0, dur: 0.55, z: 85 });
+  G.bullets.push({ kind: 'bomb', team: u.team, sx: u.x, sy: u.y, tx: u.x + Math.cos(u.a) * 70, ty: u.y + Math.sin(u.a) * 70, x: u.x, y: u.y, t: 0, dur: 0.55, z: 85, owner: u.id });
   sfx('throw', u.x, u.y);
 }
 function bombTargetBelow(u) {
-  for (const o of G.units) if (!o.dead && o.team !== u.team && (o.T.building || (o.T.vehicle && !o.T.air)) && dist(o, u) < 90 + o.r) return o;
+  const any = u.type === 't_bomber';
+  for (const o of G.units) if (!o.dead && o.team !== u.team && !o.T.air && (any || o.T.building || o.T.vehicle) && dist(o, u) < (any ? 120 : 90) + o.r) return o;
   return null;
 }
 function planeAI(u, dt) {
@@ -1200,13 +1529,13 @@ function planeAI(u, dt) {
   u.retarget -= dt;
   if (u.retarget <= 0) {
     u.retarget = 0.4;
-    if (u.team === 'g' && u.order.type === 'attack' && u.order.target && !u.order.target.dead) u.target = u.order.target;
+    if ((u.team === 'g' || u.leader) && u.order.type === 'attack' && u.order.target && !u.order.target.dead) u.target = u.order.target;
     else u.target = findTarget(u, u.T.sight);
   }
   if (u.target && u.target.dead) u.target = null;
   let goal;
   if (u.target) goal = u.target;
-  else if (u.team === 'g') { const s = G.sarge; goal = u.order.type === 'move' || u.order.type === 'hold' ? { x: u.order.x, y: u.order.y } : (s.dead ? G.hq : s); }
+  else if (u.team === 'g' || u.leader) { const s = leaderOf(u); goal = u.order.type === 'move' || u.order.type === 'hold' ? { x: u.order.x, y: u.order.y } : (s.dead ? (s.home || G.hq) : s); }
   else goal = u.raider ? (G.hq.dead ? G.sarge : G.hq) : (u.home || u);
   const d = dist(u, goal), toGoal = Math.atan2(goal.y - u.y, goal.x - u.x);
   let want = toGoal;
@@ -1217,13 +1546,13 @@ function planeAI(u, dt) {
   u.ta = u.a;
   if (u.target && d < W.range && Math.abs(lerpAngle(u.a, toGoal, 1) - u.a) < 0.35 && u.cd <= 0) { fire(u, u.T.weapon, goal.x, goal.y); u.cd = W.cd; }
   u.bombCd = (u.bombCd || 0) - dt;
-  if (u.bombCd <= 0 && bombTargetBelow(u)) { dropBomb(u); u.bombCd = 2.2; }
+  if (u.bombCd <= 0 && bombTargetBelow(u)) { dropBomb(u); u.bombCd = u.type === 't_bomber' ? 0.45 : 2.2; }
 }
 
-function controlVehicle(v, dt) {
+function controlVehicle(v, dt, pl = G.sarge) {
   v.cd -= dt; v.flash -= dt; v.anim += dt; v.moving = false;
   const W = WEAP[v.T.weapon];
-  const inp = readInput(v, W, false);
+  const inp = readInput(v, W, false, pl);
   if (v.T.kind === 'plane') {
     if (inp.l) v.a = turnToward(v.a, Math.atan2(inp.my, inp.mx), 2.6 * dt);
     flyForward(v, dt);
@@ -1247,8 +1576,8 @@ function controlVehicle(v, dt) {
       collideObs(v);
       // run over tan infantry
       for (const o of G.units) {
-        if (o.dead || o.team !== 't' || o.T.building || o.T.vehicle || o.type === 'boss') continue;
-        if (dist(v, o) < v.r + o.r + 2) damage(o, (v.T.kind === 'tank' ? 140 : 90) * dt, 'g');
+        if (o.dead || o.team === v.team || o.T.building || o.T.vehicle || o.type === 'boss' || o.isPlayer) continue;
+        if (dist(v, o) < v.r + o.r + 2) damage(o, (v.T.kind === 'tank' ? 140 : 90) * dt, v.team, 'run');
       }
     }
     v.moving = true;
@@ -1258,8 +1587,24 @@ function controlVehicle(v, dt) {
   if (inp.fire && v.cd <= 0) { fire(v, v.T.weapon, inp.aimX, inp.aimY); v.cd = W.cd; }
 }
 
+function updateViewCam(view, dt) {
+  const pl = view.pl, me = pl.driving || pl, focus = !pl.dead ? me : (pl.home || G.hq);
+  const la = me.aimA ?? me.a ?? 0, lead = pl.dead ? 0 : 90;
+  view.cam.x += (focus.x + Math.cos(la) * lead - view.cam.x) * Math.min(1, dt * 6);
+  view.cam.y += (focus.y + Math.sin(la) * lead - view.cam.y) * Math.min(1, dt * 6);
+  const hw = VW / 4 / Z, hh = VH / 2 / Z;
+  view.cam.x = WORLD_W < hw * 2 ? WORLD_W / 2 : clamp(view.cam.x, hw, WORLD_W - hw);
+  view.cam.y = WORLD_H < hh * 2 ? WORLD_H / 2 : clamp(view.cam.y, hh, WORLD_H - hh);
+}
 function update(dt) {
   G.time += dt;
+  if (G.views) {
+    for (const v of G.views) updateViewCam(v, dt);
+    G.cam = G.views[0].cam;
+    const mw = screenToWorld(mouse.x, mouse.y); mouse.wx = mw.x; mouse.wy = mw.y;
+    G.shake = Math.max(0, G.shake - dt * 40);
+    return updateWorld(dt);
+  }
   // camera
   const s = G.sarge;
   const me = s.driving || s;
@@ -1275,23 +1620,29 @@ function update(dt) {
   const mw = screenToWorld(mouse.x, mouse.y);
   mouse.wx = mw.x; mouse.wy = mw.y;
   G.shake = Math.max(0, G.shake - dt * 40);
+  updateWorld(dt);
+}
+function updateWorld(dt) {
+  for (const u of G.units) if (!u.T.air && !u.T.building) { u._ox = u.x; u._oy = u.y; }
+  for (const pl of G.players) updateSarge(dt, pl);
 
-  updateSarge(dt);
-
-  // respawn
-  if (s.dead && G.respawn > 0) {
-    G.respawn -= dt;
-    if (G.respawn <= 0 && !G.hq.dead) {
-      const sp = spawnPoint(s);
-      s.dead = false; s.hp = s.maxHp; s.x = sp.x + 80; s.y = sp.y; s.driving = null; collideObs(s);
-      SARGE_SLOTS.forEach((sl, i) => { if (sl.refill) s.ammo[i] = Math.max(s.ammo[i], Math.ceil(sl.ammo / 2)); });
-      G.units.push(s); G.pings.push({ x: s.x, y: s.y, t: 0.8, col: '#9ef06a' });
+  // respawn (each player redeploys on their own timer)
+  for (const pl of G.players) {
+    if (!pl.dead || !(pl.respawn > 0)) continue;
+    pl.respawn -= dt;
+    const home = pl.home || G.hq;
+    if (pl.respawn <= 0 && !home.dead) {
+      const sp = spawnPoint(pl, pl.team), side = pl.team === 't' ? -1 : 1;
+      pl.dead = false; pl.hp = pl.maxHp; pl.x = sp.x + 80 * side; pl.y = sp.y + pl.pid * 40; pl.driving = null; collideObs(pl);
+      SARGE_SLOTS.forEach((sl, i) => { if (sl.refill) pl.ammo[i] = Math.max(pl.ammo[i], Math.ceil(sl.ammo / 2)); });
+      G.units.push(pl); G.pings.push({ x: pl.x, y: pl.y, t: 0.8, col: '#9ef06a' });
     }
   }
+  if (G.mode === 'versus') { G.incomeT = (G.incomeT || 0) + dt; if (G.incomeT >= 1) { G.incomeT -= 1; G.plastic += 4; G.plastic2 += 4; } }
 
   // tan attack waves (from up to three bunkers)
   G.waveT -= dt;
-  if (G.waveT <= 0) {
+  if (G.waveT <= 0 && G.mode !== 'versus') {
     G.waveT = G.L.waveT * DIFF().wave;
     const live = G.bunkers.filter(b => !b.dead).sort(() => Math.random() - 0.5).slice(0, 3);
     if (live.length) {
@@ -1302,20 +1653,23 @@ function update(dt) {
     }
   }
 
-  // follower slot assignment
-  const followers = G.units.filter(u => u.team === 'g' && !u.dead && !u.driver && u.order.type === 'follow' && RECRUITS.includes(u.type));
-  followers.forEach((u, i) => { u.slotIdx = i; u.slotN = followers.length; });
+  // follower slot assignment (per leader)
+  for (const pl of G.players) {
+    const followers = G.units.filter(u => !u.dead && !u.driver && u.order && u.order.type === 'follow' && RECRUITS.includes(u.type) && u.team === pl.team && leaderOf(u) === pl);
+    followers.forEach((u, i) => { u.slotIdx = i; u.slotN = followers.length; });
+  }
 
   for (const u of G.units) {
-    if (u.dead || u === G.sarge || u.driver) continue;
+    if (u.dead || u.isPlayer || u.driver) continue;
     u.cd -= dt; u.flash -= dt; u.moving = false; u.anim += dt;
     if (u.type === 'hq' || u.type === 'gpill') buildingAI(u, dt);
     else if (u.type === 'bunker') { buildingAI(u, dt); bunkerSpawn(u, dt); }
     else if (u.type === 'boss') bossAI(u, dt);
-    else if (u.team === 'g') squadAI(u, dt);
+    else if (u.team === 'g' || u.leader) squadAI(u, dt);
     else tanAI(u, dt);
   }
   separate();
+  applyHazards(dt);
 
   updateBullets(dt);
 
@@ -1325,7 +1679,7 @@ function update(dt) {
     if (m.arm > 0) continue;
     for (const u of G.units) {
       if (u.dead || u.team === m.team || u.T.air || u.T.building) continue;
-      if (dist(u, m) < u.r + 22) { m.dead = true; explode(m.x, m.y, m.splash, m.dmg, m.team); break; }
+      if (dist(u, m) < u.r + 22) { m.dead = true; explode(m.x, m.y, m.splash, m.dmg, m.team, m.owner); break; }
     }
   }
   G.mines = G.mines.filter(m => !m.dead);
@@ -1347,9 +1701,11 @@ function update(dt) {
   for (const o of G.obs) if (o.flash > 0) o.flash -= dt;
   G.obs = G.obs.filter(o => !o.dead);
 
-  // pickups (Sarge collects them on foot or by vehicle)
+  // pickups (any player collects them on foot or by vehicle)
   for (const p of G.pickups) {
     p.t -= dt;
+    for (const s of G.players) {
+    if (p.t <= 0) break;
     const pr = s.driving ? s.driving.r + 16 : 28;
     if (!s.dead && Math.hypot(p.x - s.x, p.y - s.y) < pr) {
       p.t = 0; sfx('pickup');
@@ -1358,7 +1714,8 @@ function update(dt) {
         else { s.hp = Math.min(s.maxHp, s.hp + 70); floatText(p.x, p.y, '+70 HP', '#ff8a8a'); }
       }
       else if (p.kind === 'ammo') { SARGE_SLOTS.forEach((sl, i) => { s.ammo[i] += sl.refill; }); floatText(p.x, p.y, 'AMMO!', '#ffd76a'); }
-      else { G.plastic += 35; floatText(p.x, p.y, '+35 plastic', '#bff27a'); }
+      else { G[purseKey(s)] += 35; floatText(p.x, p.y, '+35 plastic', '#bff27a'); }
+    }
     }
   }
   G.pickups = G.pickups.filter(p => p.t > 0);
@@ -1368,31 +1725,48 @@ function update(dt) {
   if (G.banner) { G.banner.t -= dt; if (G.banner.t <= 0) G.banner = null; }
 
   // win / lose
-  if (!G.result && G.bunkers.every(b => b.dead) && (!G.boss || G.boss.dead)) { G.result = 'win'; G.endT = 2.5; }
+  if (!G.result && G.mode !== 'versus' && G.bunkers.every(b => b.dead) && (!G.boss || G.boss.dead) && G.minis.every(m => m.dead)) { G.result = 'win'; G.endT = 2.5; }
   if (G.result) {
     G.endT -= dt;
     if (G.endT <= 0) {
-      if (G.result === 'win') {
+      if (G.result === 'versus') { state = 'vsover'; sfx('win'); award('duel'); }
+      else if (G.result === 'win') {
         carry = { plastic: G.plastic + 100, squad: squad().map(u => u.type) };
         state = G.idx === LEVELS.length - 1 ? 'victory' : 'levelwin';
         sfx('win');
+        missionRewards();
       } else { state = 'over'; sfx('lose'); }
     }
   }
 }
 
-function updateSarge(dt) {
-  const s = G.sarge;
+function missionRewards() {
+  if (G.mode === 'versus' || G.rewarded) return;
+  G.rewarded = true;
+  const earned = [['Mission complete', 1]];
+  if (!G.lost) earned.push(['No squad losses', 1]);
+  if (!G.sargeDowned) earned.push(['Sarge never went down', 1]);
+  if (diffIdx === 2) earned.push(['Hard difficulty', 1]);
+  G.starsEarned = earned;
+  stars += earned.reduce((a, e) => a + e[1], 0); store.set('stars', stars);
+  if (!G.sargeDowned) award('untouchable');
+  if (!G.lost) award('noloss');
+  if (diffIdx === 2) award('hard');
+  if (G.mode === 'coop') award('coop');
+  if (G.idx === LEVELS.length - 1) { award('campaign'); campaign = null; store.set('campaign', null); }
+  else { campaign = { mission: G.idx + 1, carry, diff: diffIdx, mode: G.mode }; store.set('campaign', campaign); }
+}
+function updateSarge(dt, s = G.sarge) {
   if (s.dead) return;
   if (s.driving) {
     const v = s.driving;
-    controlVehicle(v, dt);
+    controlVehicle(v, dt, s);
     s.x = v.x; s.y = v.y; s.a = v.a; s.aimA = v.ta;
     return;
   }
   s.cd -= dt; s.flash -= dt; s.anim += dt;
   const slot = SARGE_SLOTS[s.slot], W = WEAP[slot.w];
-  const inp = readInput(s, W, slot.w === 's_grenade');
+  const inp = readInput(s, W, slot.w === 's_grenade', s);
   s.moving = inp.l > 0;
   if (inp.l) {
     const sp = TYPES.sarge.speed * (slot.w === 's_bazooka' ? 0.85 : 1) * inp.mag;
@@ -1407,7 +1781,7 @@ function updateSarge(dt) {
     } else { s.cd = 0.4; sfx('deny'); floatText(s.x, s.y - 24, 'Out of ' + slot.name + ' ammo!', '#ffd76a'); }
   }
   s.regenT -= dt;
-  if (s.regenT <= 0 && s.hp < s.maxHp) s.hp = Math.min(s.maxHp, s.hp + 6 * dt);
+  if (s.regenT <= 0 && s.hp < s.maxHp) s.hp = Math.min(s.maxHp, s.hp + 6 * (1 + 0.5 * upg('medic')) * dt);
 }
 
 function shootAt(u, t, wkey) {
@@ -1421,7 +1795,7 @@ function shootAt(u, t, wkey) {
 
 function squadAI(u, dt) {
   const W = WEAP[u.T.weapon];
-  const s = G.sarge;
+  const s = leaderOf(u);
   if (u.type === 'medic') return medicAI(u, dt);
   if (u.T.kind === 'plane') return planeAI(u, dt);
   if (u.type === 'engineer' && engineerWork(u, dt)) return;
@@ -1437,7 +1811,7 @@ function squadAI(u, dt) {
   if (u.target && u.target.dead) u.target = null;
   let anchor, leash;
   if (u.order.type === 'follow') {
-    const lead = !s.dead ? s : G.hq;
+    const lead = !s.dead ? s : (s.home || G.hq);
     const i = u.slotIdx || 0, n = u.slotN || 1;
     const ring = Math.floor(i / 7), idx = i % 7, cnt = Math.min(7, n - ring * 7);
     const fa = (!s.dead ? s.a : 0) + Math.PI + (idx - (cnt - 1) / 2) * 0.5;
@@ -1467,13 +1841,13 @@ function squadAI(u, dt) {
 }
 
 function medicAI(u, dt) {
-  const s = G.sarge;
+  const s = leaderOf(u);
   u.retarget -= dt;
   if (u.retarget <= 0) {
     u.retarget = 0.3;
     let best = null, bv = 0.98;
     for (const o of G.units) {
-      if (o.dead || o.team !== 'g' || o === u || o.T.building) continue;
+      if (o.dead || o.team !== u.team || o === u || o.T.building) continue;
       const f = o.hp / o.maxHp;
       if (f < bv && dist(u, o) < u.T.sight) { bv = f; best = o; }
     }
@@ -1485,7 +1859,7 @@ function medicAI(u, dt) {
     else {
       u.a = lerpAngle(u.a, Math.atan2(t.y - u.y, t.x - u.x), 0.3);
       if (u.cd <= 0) {
-        u.cd = WEAP.heal.cd; t.hp = Math.min(t.maxHp, t.hp + WEAP.heal.heal);
+        u.cd = WEAP.heal.cd; t.hp = Math.min(t.maxHp, t.hp + WEAP.heal.heal * (1 + 0.5 * upg('medic')));
         for (let i = 0; i < 4; i++) addPart({ x: t.x + rand(-8, 8), y: t.y + rand(-8, 8), vx: 0, vy: -40, life: 0.6, size: 4, col: '#7dff8a', type: 'plus' });
         sfx('heal', u.x, u.y);
       }
@@ -1493,7 +1867,7 @@ function medicAI(u, dt) {
     return;
   }
   let anchor;
-  if (u.order.type === 'follow') { const lead = !s.dead ? s : G.hq; anchor = { x: lead.x - Math.cos(s.a || 0) * 40, y: lead.y - Math.sin(s.a || 0) * 40 }; }
+  if (u.order.type === 'follow') { const lead = !s.dead ? s : (s.home || G.hq); anchor = { x: lead.x - Math.cos(s.a || 0) * 40, y: lead.y - Math.sin(s.a || 0) * 40 }; }
   else anchor = { x: u.order.x, y: u.order.y };
   if (anchor.x !== undefined && Math.hypot(anchor.x - u.x, anchor.y - u.y) > 30) steer(u, anchor.x, anchor.y, dt, u.T.speed);
   if (u.order.type === 'move' && Math.hypot(u.order.x - u.x, u.order.y - u.y) < 12) u.order = { type: 'hold', x: u.order.x, y: u.order.y };
@@ -1501,6 +1875,10 @@ function medicAI(u, dt) {
 
 function tanAI(u, dt) {
   if (u.T.kind === 'plane') return planeAI(u, dt);
+  if (u.type === 'megatank' && u.target && !u.target.dead && dist(u, u.target) < 340) {
+    u.cd2 -= dt;
+    if (u.cd2 <= 0) { fire(u, 't_mg', u.target.x + rand(-6, 6), u.target.y + rand(-6, 6)); u.cd2 = 0.18; }
+  }
   const W = WEAP[u.T.weapon];
   if (!u.home) { u.home = { x: u.x, y: u.y }; u.wanderT = 0; }
   u.retarget -= dt;
@@ -1644,14 +2022,14 @@ function updateBullets(dt) {
       b.t += dt;
       const k = Math.min(1, b.t / b.dur);
       b.x = b.sx + (b.tx - b.sx) * k; b.y = b.sy + (b.ty - b.sy) * k; b.z = 85 * (1 - k * k);
-      if (b.t >= b.dur) { b.dead = true; explode(b.tx, b.ty, 95, 110, b.team); }
+      if (b.t >= b.dur) { b.dead = true; explode(b.tx, b.ty, 95, 110, b.team, b.owner); }
       continue;
     }
     if (b.kind === 'grenade') {
       b.t += dt;
       const k = Math.min(1, b.t / b.dur);
       b.x = b.sx + (b.tx - b.sx) * k; b.y = b.sy + (b.ty - b.sy) * k; b.z = Math.sin(k * Math.PI) * (b.h || 60);
-      if (b.t >= b.dur) { b.dead = true; explode(b.tx, b.ty, b.splash, b.dmg, b.team); }
+      if (b.t >= b.dur) { b.dead = true; explode(b.tx, b.ty, b.splash, b.dmg, b.team, b.owner); }
       continue;
     }
     if (b.homing && !b.homing.dead) {
@@ -1665,7 +2043,7 @@ function updateBullets(dt) {
     // obstacles (shots fly over water)
     for (const o of G.obs) {
       if (o.kind === 'water' || !inRect(b.x, b.y, o)) continue;
-      if (b.kind === 'rocket' || b.kind === 'shell') explode(b.x, b.y, b.splash, b.dmg, b.team);
+      if (b.kind === 'rocket' || b.kind === 'shell') explode(b.x, b.y, b.splash, b.dmg, b.team, b.owner);
       else if (b.kind === 'flame') damageObs(o, b.dmg * 0.4);
       else { damageObs(o, b.dmg); for (let i = 0; i < 3; i++) addPart({ x: b.x, y: b.y, vx: rand(-80, 80), vy: rand(-80, 80), life: 0.2, size: 2, col: '#ffe9a0', type: 'spark' }); }
       b.dead = true; break;
@@ -1678,25 +2056,25 @@ function updateBullets(dt) {
       if (dist2(u, b) > rr * rr) continue;
       if (b.kind === 'flame') {
         if (b.hits.has(u.id)) continue;
-        b.hits.add(u.id); damage(u, b.dmg * (u.T.vehicle ? 0.6 : 1), b.team);
+        b.hits.add(u.id); damage(u, b.dmg * (u.T.vehicle ? 0.6 : 1), b.team, b.owner);
         if (Math.random() < 0.3) addPart({ x: u.x + rand(-6, 6), y: u.y + rand(-6, 6), vx: 0, vy: -30, life: 0.4, size: 6, col: '#ff8a2a', type: 'fire' });
         continue;
       }
-      if (b.kind === 'rocket' || b.kind === 'shell') explode(b.x, b.y, b.splash, b.dmg, b.team);
+      if (b.kind === 'rocket' || b.kind === 'shell') explode(b.x, b.y, b.splash, b.dmg, b.team, b.owner);
       else if (b.hits) { // piercing sniper round
         if (b.hits.has(u.id)) continue;
-        b.hits.add(u.id); damage(u, b.dmg, b.team);
+        b.hits.add(u.id); damage(u, b.dmg, b.team, b.owner);
         for (let i = 0; i < 4; i++) addPart({ x: b.x, y: b.y, vx: rand(-70, 70), vy: rand(-70, 70), life: 0.25, size: 2.5, col: COL[u.team].light, type: 'spark' });
         if (b.pierce-- > 0) continue;
       } else {
-        damage(u, b.dmg, b.team);
+        damage(u, b.dmg, b.team, b.owner);
         for (let i = 0; i < 3; i++) addPart({ x: b.x, y: b.y, vx: rand(-60, 60), vy: rand(-60, 60), life: 0.25, size: 2.5, col: COL[u.team].light, type: 'spark' });
       }
       b.dead = true; break;
     }
     if (!b.dead && b.life <= 0) {
       b.dead = true;
-      if (b.kind === 'rocket' || b.kind === 'shell') explode(b.x, b.y, b.splash, b.dmg, b.team);
+      if (b.kind === 'rocket' || b.kind === 'shell') explode(b.x, b.y, b.splash, b.dmg, b.team, b.owner);
     }
   }
   G.bullets = G.bullets.filter(b => !b.dead);
@@ -1876,7 +2254,6 @@ function drawObstacle(o) {
   const fl = o.flash > 0;
   ctx.save();
   if (o.kind !== 'water') { ctx.fillStyle = 'rgba(0,0,0,0.25)'; rrect(o.x + 6, o.y + 8, o.w, o.h, 6); ctx.fill(); }
-  if (o.kind === 'water') { drawWater(o); ctx.restore(); return; }
   if (o.kind === 'block') {
     ctx.fillStyle = shade(o.color, -0.3); rrect(o.x, o.y + 6, o.w, o.h, 4); ctx.fill();
     ctx.fillStyle = fl ? '#fff' : o.color; rrect(o.x, o.y, o.w, o.h, 4); ctx.fill();
@@ -1985,28 +2362,50 @@ function drawObstacle(o) {
   }
   ctx.restore();
 }
-function drawWater(o) {
-  const grd = ctx.createLinearGradient(o.x, 0, o.x + o.w, 0);
-  grd.addColorStop(0, '#2f6f8f'); grd.addColorStop(0.5, '#3f8fb4'); grd.addColorStop(1, '#2f6f8f');
-  ctx.fillStyle = grd; ctx.fillRect(o.x, o.y, o.w, o.h);
-  ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 2;
-  const t = G ? G.time : 0;
-  for (let i = 0; i < 4; i++) { const y = o.y + ((i * 41 + t * 30) % o.h); ctx.beginPath(); ctx.moveTo(o.x + 20 + i * 18, y); ctx.quadraticCurveTo(o.x + o.w / 2, y - 6, o.x + o.w - 20, y); ctx.stroke(); }
+function riverPoly(pts, from, to, inset = 0, taper = false) {
+  const w = (p, i) => (p.hw - inset) * (taper ? Math.pow(Math.sin(Math.PI * (i - from) / Math.max(1, to - from)), 0.5) : 1);
+  ctx.beginPath();
+  for (let i = from; i <= to; i++) { const p = pts[i]; i === from ? ctx.moveTo(p.x - w(p, i), p.y) : ctx.lineTo(p.x - w(p, i), p.y); }
+  for (let i = to; i >= from; i--) { const p = pts[i]; ctx.lineTo(p.x + w(p, i), p.y); }
+  ctx.closePath();
 }
 function drawRiverExtras(vis) {
   if (!G.river) return;
-  for (const sgm of G.river.segs) {
-    if (!vis(sgm.x, sgm.y, 200)) continue;
-    if (sgm.ford) { // shallow ford with stepping stones
-      ctx.fillStyle = 'rgba(80,150,180,0.45)'; ctx.fillRect(sgm.x, sgm.y, sgm.w, sgm.h);
-      ctx.fillStyle = '#8d8a80'; for (let i = 0; i < 9; i++) circle(sgm.x + 15 + (i * 53) % (sgm.w - 30), sgm.y + 20 + (i * 37) % (sgm.h - 40), 9);
-    } else if (sgm.bridged) {
-      drawWater(sgm);
-      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(sgm.x - 22, sgm.y + sgm.h / 2 - 34, sgm.w + 44, 76);
-      ctx.fillStyle = '#9a6b3c'; ctx.fillRect(sgm.x - 26, sgm.y + sgm.h / 2 - 40, sgm.w + 52, 80);
+  const R = G.river, pts = R.pts, t = G.time;
+  const y0 = G.cam.y - VH / 2 / Z - 120, y1 = G.cam.y + VH / 2 / Z + 120;
+  const from = clamp(Math.floor(y0 / R.step), 0, pts.length - 1), to = clamp(Math.ceil(y1 / R.step), 0, pts.length - 1);
+  if (!vis(pts[from].x, G.cam.y, 2000)) return;
+  // water body: pale edge, deeper middle
+  riverPoly(pts, from, to); ctx.fillStyle = '#5aa6c6'; ctx.fill();
+  riverPoly(pts, from, to, 14); ctx.fillStyle = '#3c8bb0'; ctx.fill();
+  riverPoly(pts, from, to, 34); ctx.fillStyle = '#2f7aa0'; ctx.fill();
+  // drifting ripples that follow the current
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.lineWidth = 2;
+  for (let k = 0; k < (to - from) / 3; k++) {
+    const yy = from * R.step + ((k * 61 + t * 28) % ((to - from) * R.step)), c = riverAt(yy), off = Math.sin(k * 2.3) * c.hw * 0.45;
+    const a2 = riverTangent(yy) + Math.PI / 2, len = 18 + (k % 3) * 8;
+    ctx.beginPath(); ctx.moveTo(c.x + off - Math.cos(a2) * len, yy - Math.sin(a2) * len); ctx.quadraticCurveTo(c.x + off, yy - 5, c.x + off + Math.cos(a2) * len, yy + Math.sin(a2) * len); ctx.stroke();
+  }
+  // bank highlight
+  ctx.strokeStyle = 'rgba(230,245,250,0.35)'; ctx.lineWidth = 3;
+  for (const side of [-1, 1]) { ctx.beginPath(); for (let i = from; i <= to; i++) { const p = pts[i]; i === from ? ctx.moveTo(p.x + side * (p.hw - 3), p.y) : ctx.lineTo(p.x + side * (p.hw - 3), p.y); } ctx.stroke(); }
+  for (const sg of R.segs) {
+    const cy = sg.y + sg.h / 2;
+    if (cy < y0 - 200 || cy > y1 + 200) continue;
+    if (sg.ford) { // shallow ford: sandy bottom showing through, stepping stones
+      const a = clamp(Math.floor((sg.y - 30) / R.step), 0, pts.length - 1), b = clamp(Math.ceil((sg.y + sg.h + 30) / R.step), 0, pts.length - 1);
+      riverPoly(pts, a, b, 4, true); ctx.fillStyle = 'rgba(205,190,140,0.32)'; ctx.fill();
+      riverPoly(pts, a + 2, b - 2, 12, true); ctx.fillStyle = 'rgba(205,190,140,0.3)'; ctx.fill();
+      for (let i = 0; i < 10; i++) { const yy = sg.y + 12 + (i * 37) % (sg.h - 24), c = riverAt(yy), x = c.x + ((i * 53) % 100 - 50) / 50 * c.hw * 0.7; ctx.fillStyle = 'rgba(0,0,0,0.25)'; ellipse(x + 2, yy + 3, 10, 7); ctx.fillStyle = '#9a968a'; ellipse(x, yy, 10, 7); }
+    } else if (sg.bridged) {
+      const c = riverAt(cy), ang = riverTangent(cy) + Math.PI / 2, L = c.hw * 2 + 60;
+      ctx.save(); ctx.translate(c.x, cy); ctx.rotate(ang);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(-L / 2 + 6, -34, L, 76);
+      ctx.fillStyle = '#9a6b3c'; ctx.fillRect(-L / 2, -40, L, 80);
       ctx.strokeStyle = '#6e4720'; ctx.lineWidth = 2;
-      for (let x = sgm.x - 26; x < sgm.x + sgm.w + 26; x += 14) { ctx.beginPath(); ctx.moveTo(x, sgm.y + sgm.h / 2 - 40); ctx.lineTo(x, sgm.y + sgm.h / 2 + 40); ctx.stroke(); }
-      ctx.fillStyle = '#6e4720'; ctx.fillRect(sgm.x - 26, sgm.y + sgm.h / 2 - 44, sgm.w + 52, 5); ctx.fillRect(sgm.x - 26, sgm.y + sgm.h / 2 + 39, sgm.w + 52, 5);
+      for (let x = -L / 2; x < L / 2; x += 14) { ctx.beginPath(); ctx.moveTo(x, -40); ctx.lineTo(x, 40); ctx.stroke(); }
+      ctx.fillStyle = '#6e4720'; ctx.fillRect(-L / 2, -44, L, 5); ctx.fillRect(-L / 2, 39, L, 5);
+      ctx.restore();
     }
   }
 }
@@ -2049,9 +2448,22 @@ function hpBar(x, y, w, f, col) {
   ctx.fillStyle = f > 0.5 ? col : f > 0.25 ? '#e8c23a' : '#e04a3a'; ctx.fillRect(x - w / 2, y, w * clamp(f, 0, 1), 4);
 }
 
+const playerColor = s => s.pid === 0 ? 'rgba(255,230,120,0.9)' : s.team === 't' ? 'rgba(255,170,90,0.95)' : 'rgba(120,220,255,0.95)';
+// split-screen: each player gets half the screen
+function drawWorldViews() {
+  const full = VW;
+  G.views.forEach((v, i) => {
+    VW = full / 2; VX = i * VW; G.cam = v.cam;
+    ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.beginPath(); ctx.rect(VX, 0, VW, VH); ctx.clip();
+    drawWorld();
+    ctx.restore();
+  });
+  VW = full; VX = 0; G.cam = G.views[0].cam;
+}
+function applyZoom() { Z = BASEZ * (G && G.views && state !== 'title' ? 0.72 : 1); }
 function drawWorld() {
   const shx = rand(-G.shake, G.shake) * 0.5, shy = rand(-G.shake, G.shake) * 0.5;
-  ctx.setTransform(DPR * Z, 0, 0, DPR * Z, DPR * (VW / 2 - G.cam.x * Z + shx), DPR * (VH / 2 - G.cam.y * Z + shy));
+  ctx.setTransform(DPR * Z, 0, 0, DPR * Z, DPR * (VX + VW / 2 - G.cam.x * Z + shx), DPR * (VH / 2 - G.cam.y * Z + shy));
   const vx0 = G.cam.x - VW / 2 / Z - 60, vy0 = G.cam.y - VH / 2 / Z - 60, vx1 = G.cam.x + VW / 2 / Z + 60, vy1 = G.cam.y + VH / 2 / Z + 60;
   const vis = (x, y, m = 0) => x > vx0 - m && x < vx1 + m && y > vy0 - m && y < vy1 + m;
 
@@ -2121,11 +2533,12 @@ function drawWorld() {
   }
 
   drawRiverExtras(vis);
+  drawHazards(vis);
   for (const o of G.obs) if (vis(o.x, o.y, Math.max(o.w, o.h))) drawObstacle(o);
   for (const j of G.jobs) drawBlueprint(j.id, j.x, j.y, j.vert, true, j.progress / j.need);
   if (G.buildMode) {
     const p = buildPreviewPoint();
-    if (p) { const S = STRUCTS[G.buildIdx], from = G.sarge.driving || G.sarge; let { x, y } = p; const seg = S.id === 'bridge' && riverSegAt(x, y); if (seg) { x = seg.x + seg.w / 2; y = seg.y + seg.h / 2; } drawBlueprint(S.id, x, y, Math.abs(p.x - from.x) > Math.abs(p.y - from.y), !buildCheck(S, p.x, p.y)); }
+    if (p) { const S = STRUCTS[G.buildIdx], from = G.sarge.driving || G.sarge; let { x, y } = p; const seg = S.id === 'bridge' && riverSegAt(x, y); if (seg) { y = seg.y + seg.h / 2; x = riverAt(y).x; } drawBlueprint(S.id, x, y, Math.abs(p.x - from.x) > Math.abs(p.y - from.y), !buildCheck(S, p.x, p.y)); }
   }
 
   // units sorted by y for a bit of depth; aircraft drawn on top
@@ -2134,7 +2547,7 @@ function drawWorld() {
     if (u.T.building) drawBuilding(u);
     else if (u.T.vehicle) drawVehicle(u);
     else if (u.type === 'boss') drawBoss(u);
-    else { u.isSarge = u === G.sarge; drawSoldier(u, u.team, u === G.sarge ? SARGE_SLOTS[u.slot].w : u.T.weapon, u.flash > 0); }
+    else { u.isSarge = !!u.isPlayer; drawSoldier(u, u.team, u.isPlayer ? SARGE_SLOTS[u.slot].w : u.T.weapon, u.flash > 0); }
   };
   for (const u of sorted) if (!u.T.air) drawUnit(u);
   for (const u of sorted) if (u.T.air) drawUnit(u);
@@ -2142,15 +2555,16 @@ function drawWorld() {
     if (u.type === 'boss') continue;
     if (u.hp < u.maxHp || u.T.building) hpBar(u.x, u.y - u.r - 10, u.T.building ? 70 : Math.max(22, u.r * 2.2), u.hp / u.maxHp, u.team === 'g' ? '#6fd13a' : '#e8b44a');
   }
-  const s = G.sarge;
-  if (!s.dead) {
+  for (const s of G.players) {
+    if (s.dead) continue;
     const me = s.driving || s;
-    ctx.strokeStyle = 'rgba(255,230,120,0.8)'; ctx.lineWidth = 2;
+    ctx.strokeStyle = playerColor(s); ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(me.x, me.y, me.r + 5, 0, TAU); ctx.stroke();
+    if (multiplayer()) { ctx.font = 'bold 12px "Trebuchet MS",sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = playerColor(s); ctx.fillText('P' + (s.pid + 1), me.x, me.y - me.r - 12); }
     if (!s.driving) {
       const v = nearestFreeVehicle(s, 60);
       if (v) {
-        const label = touchMode ? 'Tap DRIVE' : padMode ? 'Y: drive' : 'E: drive';
+        const label = s !== G.sarge || padMode ? 'Y: drive' : touchMode ? 'Tap DRIVE' : 'E: drive';
         ctx.font = 'bold 13px "Trebuchet MS",sans-serif'; ctx.textAlign = 'center';
         ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillText(label, v.x + 1, v.y - v.r - 15);
         ctx.fillStyle = '#ffe9a0'; ctx.fillText(label, v.x, v.y - v.r - 16);
@@ -2255,6 +2669,7 @@ function hudScale() { return touchMode ? clamp(Math.min(VW / 1000, VH / 560), 0.
 // all HUD layout happens in "logical" pixels (screen px / HS)
 function minimapRect() {
   const LW = VW / HS, LH = VH / HS;
+  if (G && G.views) { const w = 190, h = w * WORLD_H / WORLD_W, boss = (G.boss && !G.boss.dead) || G.minis.some(m => !m.dead); return { x: LW / 2 - w / 2, y: boss ? 72 : 12, w, h }; }
   if (touchMode) { const w = 170, h = w * WORLD_H / WORLD_W; return { x: LW - w - 14, y: 86, w, h }; }
   const w = Math.min(220, LW * 0.22), h = w * WORLD_H / WORLD_W; return { x: LW - w - 14, y: LH - h - 14, w, h };
 }
@@ -2281,52 +2696,52 @@ function drawHUD() {
   // top-left: mission
   const left = G.bunkers.filter(b => !b.dead).length;
   panel(12, 12, 300, 62);
-  txt(`Mission ${G.idx + 1}/${LEVELS.length}: ${G.L.name}`, 24, 34, 15, '#e7f5c9');
-  const obj = left ? `Bunkers remaining: ${left}/${G.bunkers.length}` : (G.boss && !G.boss.dead ? 'Defeat the Tan Overlord!' : 'Area secured!');
-  txt(obj, 24, 56, 13, left ? '#ffd76a' : '#ff8a6a', 'left', false);
-  if (left) txt(`Next wave ${Math.ceil(G.waveT)}s`, 300, 56, 12, '#c9d8b0', 'right', false);
+  if (G.mode === 'versus') {
+    txt(`VERSUS · ${G.L.name}`, 24, 34, 15, '#e7f5c9');
+    txt(`Green HQ ${Math.max(0, Math.ceil(G.hq.hp))}  ·  Tan HQ ${Math.max(0, Math.ceil(G.hq2.hp))}`, 24, 56, 13, '#ffd76a', 'left', false);
+  } else {
+    txt(`Mission ${G.idx + 1}/${LEVELS.length}: ${G.L.name}${G.mode === 'coop' ? ' · co-op' : ''}`, 24, 34, 15, '#e7f5c9');
+    const obj = left ? `Bunkers remaining: ${left}/${G.bunkers.length}` : (G.boss && !G.boss.dead ? 'Defeat the Tan Overlord!' : G.minis.some(m => !m.dead) ? 'Destroy the ' + G.minis.find(m => !m.dead).T.title.toLowerCase() + '!' : 'Area secured!');
+    txt(obj, 24, 56, 13, left ? '#ffd76a' : '#ff8a6a', 'left', false);
+    if (left) txt(`Next wave ${Math.ceil(G.waveT)}s`, 300, 56, 12, '#c9d8b0', 'right', false);
+  }
 
   // top-right: resources
   panel(LW - 232, 12, 220, 62);
   ctx.fillStyle = '#6fd13a'; circle(LW - 210, 36, 9); txt('P', LW - 210, 40, 11, '#1f3d0e', 'center');
-  txt(`${Math.floor(G.plastic)} plastic`, LW - 194, 41, 16, '#d9f7b5');
-  txt(`Squad ${squad().length}/${MAX_SQUAD}${G.sel.size ? ' (' + G.sel.size + ' sel.)' : ''} · ${DIFF().name}`, LW - 222, 62, 12, '#c9d8b0', 'left', false);
-  for (let i = 0; i < G.lives; i++) { ctx.fillStyle = '#79b347'; ctx.beginPath(); ctx.arc(LW - 30 - i * 18, 62, 7, Math.PI, 0); ctx.fill(); ctx.fillRect(LW - 39 - i * 18, 61, 18, 3); }
+  if (G.mode === 'versus') {
+    txt(`${Math.floor(G.plastic)}`, LW - 194, 41, 16, '#d9f7b5'); txt(`Tan ${Math.floor(G.plastic2)}`, LW - 24, 41, 16, '#ffcf8a', 'right');
+    txt(`Squads  P1 ${squadOf(G.sarge).length}  ·  P2 ${squadOf(G.p2).length}`, LW - 222, 62, 12, '#c9d8b0', 'left', false);
+  } else {
+    txt(`${Math.floor(G.plastic)} plastic`, LW - 194, 41, 16, '#d9f7b5');
+    txt(G.p2 ? `Squads  P1 ${squadOf(G.sarge).length} · P2 ${squadOf(G.p2).length}` : `Squad ${squad().length}/${MAX_SQUAD}${G.sel.size ? ' (' + G.sel.size + ' sel.)' : ''} · ${DIFF().name}`, LW - 222, 62, 12, '#c9d8b0', 'left', false);
+  }
+  for (let i = 0; i < (G.lives === Infinity ? 0 : G.lives); i++) { ctx.fillStyle = '#79b347'; ctx.beginPath(); ctx.arc(LW - 30 - i * 18, 62, 7, Math.PI, 0); ctx.fill(); ctx.fillRect(LW - 39 - i * 18, 61, 18, 3); }
 
-  // bottom-left: Sarge (or the vehicle he drives)
+  // bottom-left: Sarge (or the vehicle he drives); Player 2 bottom-right
   const n = SARGE_SLOTS.length, sw = 54, pw = 16 + n * (sw + 4);
   const bx = 12, by = LH - 104;
-  panel(bx, by, pw, 92);
-  if (s.driving) {
-    const v = s.driving;
-    txt('DRIVING: ' + TYPES[v.type].name.toUpperCase(), bx + 12, by + 22, 13, '#ffd76a');
-    hpBarHUD(bx + 190, by + 12, pw - 202, 12, v.hp / v.maxHp);
-    txt(`Weapon: ${{ j_mg: 'Mounted machine gun', g_cannon: 'Tank cannon', h_rockets: 'Rocket pods' }[v.T.weapon]}  ·  unlimited ammo`, bx + 12, by + 50, 13, '#e7f5c9', 'left', false);
-    txt(v.T.kind === 'heli' ? 'Flies over obstacles.' : 'Ram tan soldiers to flatten them.', bx + 12, by + 70, 12, '#c9d8b0', 'left', false);
-    const exitLbl = touchMode ? 'Tap EXIT to hop out' : padMode ? 'Press Y to hop out' : 'Press E to hop out';
-    txt(exitLbl, bx + pw - 12, by + 70, 12, '#ffe9a0', 'right');
-  } else {
-    txt('SARGE', bx + 12, by + 22, 13, '#ffd76a');
-    hpBarHUD(bx + 70, by + 12, pw - 82, 12, s.dead ? 0 : s.hp / s.maxHp);
-    if (s.dead && G.respawn > 0) txt(`Redeploying in ${Math.ceil(G.respawn)}...`, bx + pw / 2 + 30, by + 22, 11, '#fff', 'center');
-    for (let i = 0; i < n; i++) {
-      const x = bx + 12 + i * (sw + 4), y = by + 34, h = 48, on = s.slot === i;
-      ctx.fillStyle = on ? 'rgba(120,180,70,0.45)' : 'rgba(255,255,255,0.06)'; rrect(x, y, sw, h, 6); ctx.fill();
-      if (on) { ctx.strokeStyle = '#b8ff7a'; ctx.lineWidth = 2; ctx.stroke(); }
-      if (!touchMode && !padMode) txt(String(i + 1), x + 5, y + 12, 9, '#c9d8b0', 'left', false);
-      txt(SARGE_SLOTS[i].name, x + sw / 2, y + 28, 11, on ? '#fff' : '#cfd9be', 'center');
-      const am = s.ammo[i];
-      txt(am === Infinity ? '∞' : String(Math.floor(am)), x + sw / 2, y + 43, 12, am === 0 ? '#ff6a5a' : '#ffd76a', 'center');
-      hudButtons.push({ x, y, w: sw, h, fn: () => { s.slot = i; } });
-    }
-  }
-
+  if (touchMode && !G.p2) drawTouchPanel(s, LH); else drawPlayerPanel(s, bx, by, pw);
+  if (G.p2) drawPlayerPanel(G.p2, LW - pw - 12, by, pw);
   // recruit grid (2 columns) on the left
   const mm = minimapRect();
   const y0 = 112, bw = 120, bh = 44;
-  txt(padMode ? 'RECRUIT  (D-pad + X)' : 'RECRUIT', 14, y0 - 6, 11, '#c9d8b0');
-  RECRUITS.forEach((t, i) => {
-    const T = TYPES[t], x = 12 + (i % 2) * (bw + 6), y = y0 + Math.floor(i / 2) * (bh + 5);
+  if (G.p2) drawP2Recruits(LW);
+  // on touch screens the list folds into one button so the left side stays free for the move stick
+  const folded = touchMode && !G.recruitOpen;
+  if (touchMode) {
+    const on = !!G.recruitOpen;
+    ctx.fillStyle = on ? 'rgba(120,180,70,0.85)' : 'rgba(16,22,12,0.8)'; rrect(12, 92, 126, 40, 8); ctx.fill();
+    ctx.strokeStyle = on ? '#d6ffb0' : 'rgba(160,200,110,0.45)'; ctx.lineWidth = 1.5; ctx.stroke();
+    txt(on ? 'RECRUIT ▾' : 'RECRUIT ▸', 75, 117, 14, '#fff', 'center');
+    hudButtons.push({ x: 12, y: 92, w: 126, h: 40, fn: () => { G.recruitOpen = !G.recruitOpen; sfx('order'); } });
+    ctx.fillStyle = G.buildMode ? 'rgba(200,160,60,0.9)' : 'rgba(16,22,12,0.8)'; rrect(144, 92, 96, 40, 8); ctx.fill();
+    ctx.strokeStyle = G.buildMode ? '#ffe9a0' : 'rgba(160,200,110,0.45)'; ctx.stroke();
+    txt(G.buildMode ? 'BUILDING' : 'BUILD', 192, 117, 13, '#fff', 'center');
+    hudButtons.push({ x: 144, y: 92, w: 96, h: 40, fn: () => toggleBuild() });
+  } else txt((multiplayer() ? 'P1 ' : '') + (padMode ? 'RECRUIT  (D-pad + X)' : 'RECRUIT'), 14, y0 - 6, 11, '#c9d8b0');
+  if (!folded) RECRUITS.forEach((t, i) => {
+    const T = TYPES[t], x = 12 + (i % 2) * (bw + 6), y = y0 + (touchMode ? 30 : 0) + Math.floor(i / 2) * (bh + 5);
     const afford = G.plastic >= T.cost && !G.hq.dead;
     panel(x, y, bw, bh);
     if (!afford) { ctx.fillStyle = 'rgba(0,0,0,0.38)'; rrect(x, y, bw, bh, 8); ctx.fill(); }
@@ -2338,9 +2753,9 @@ function drawHUD() {
     } else drawSoldier({ x: x + 21, y: y + bh / 2, r: 10, a: -Math.PI / 2, moving: false, anim: 0 }, 'g', T.weapon, false);
     txt(T.name, x + 40, y + 19, 12, afford ? '#e7f5c9' : '#8a957a');
     txt(touchMode || padMode ? `${T.cost}` : `[${T.key}] ${T.cost}`, x + 40, y + 36, 11, afford ? '#9ef06a' : '#7a8a6a', 'left', false);
-    hudButtons.push({ x, y, w: bw, h: bh, fn: () => recruit(t) });
+    hudButtons.push({ x, y, w: bw, h: bh, fn: () => { recruit(t); if (touchMode) G.recruitOpen = false; } });
   });
-  {
+  if (!touchMode) {
     const i = RECRUITS.length, x = 12 + (i % 2) * (bw + 6), y = y0 + Math.floor(i / 2) * (bh + 5);
     ctx.fillStyle = G.buildMode ? 'rgba(200,160,60,0.9)' : 'rgba(16,22,12,0.78)'; rrect(x, y, bw, bh, 8); ctx.fill();
     ctx.strokeStyle = G.buildMode ? '#ffe9a0' : 'rgba(160,200,110,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
@@ -2372,7 +2787,7 @@ function drawHUD() {
     roundBtn(cx - 64, cy0 + 62, 27, s.driving ? 'EXIT' : 'DRIVE', !!canDrive, toggleVehicle);
     roundBtn(cx - 64, cy0, 21, 'II', false, () => { state = 'paused'; moveStick = aimStick = null; });
     roundBtn(cx - 64, cy0 + 118, 21, '?', showHelp, () => { showHelp = !showHelp; });
-  } else if (padMode) {
+  } else if (padMode && !multiplayer()) {
     const cx = (bx + pw + mm.x) / 2;
     if (!G.buildMode) txt('RT fire · LB/RB weapon · Y drive/exit · LT send squad · L3 build', cx, LH - 40, 12, '#e7f5c9', 'center', false);
     if (!G.buildMode) txt('A follow · B guard · D-pad pick recruit · X buy · Menu pause · View help', cx, LH - 22, 12, '#c9d8b0', 'center', false);
@@ -2384,8 +2799,12 @@ function drawHUD() {
   ctx.fillStyle = { grass: '#3f6a28', tile: '#9c917a', concrete: '#6e6f6a', sand: '#b39a66', carpet: '#6b3228', bedroom: '#a8743f', desert: '#c27e3e', mountain: '#5c6648', tundra: '#7d7a5a', arctic: '#c9d6e0' }[G.L.theme];
   ctx.fillRect(mm.x, mm.y, mm.w, mm.h);
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  for (const o of G.obs) { ctx.fillStyle = o.kind === 'water' ? '#3f8fb4' : 'rgba(0,0,0,0.35)'; ctx.fillRect(mm.x + o.x * sx, mm.y + o.y * sy, Math.max(1.5, o.w * sx), Math.max(1.5, o.h * sy)); }
-  if (G.river) for (const g of G.river.segs) if (g.ford || g.bridged) { ctx.fillStyle = g.bridged ? '#9a6b3c' : 'rgba(63,143,180,0.5)'; ctx.fillRect(mm.x + g.x * sx, mm.y + g.y * sy, Math.max(1.5, g.w * sx), Math.max(1.5, g.h * sy)); }
+  for (const o of G.obs) ctx.fillRect(mm.x + o.x * sx, mm.y + o.y * sy, Math.max(1.5, o.w * sx), Math.max(1.5, o.h * sy));
+  if (G.river) {
+    ctx.strokeStyle = '#3f8fb4'; ctx.lineWidth = Math.max(2, G.river.wid * sx); ctx.lineJoin = 'round'; ctx.beginPath();
+    G.river.pts.forEach((p, i) => i ? ctx.lineTo(mm.x + p.x * sx, mm.y + p.y * sy) : ctx.moveTo(mm.x + p.x * sx, mm.y + p.y * sy)); ctx.stroke();
+    for (const g of G.river.segs) if (g.ford || g.bridged) { const c = riverAt(g.y + g.h / 2); ctx.fillStyle = g.bridged ? '#b07a44' : '#9fd0e4'; ctx.fillRect(mm.x + (c.x - c.hw) * sx - 1, mm.y + (g.y + g.h * 0.3) * sy, c.hw * 2 * sx + 2, Math.max(2, g.h * 0.4 * sy)); }
+  }
   const me = s.driving || s;
   ctx.fillStyle = '#3fae2a';
   for (const o of G.outposts) ctx.fillRect(mm.x + o.x * sx - 3, mm.y + o.y * sy - 3, 6, 6);
@@ -2398,7 +2817,16 @@ function drawHUD() {
   ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1;
   ctx.strokeRect(mm.x + (G.cam.x - VW / 2 / Z) * sx, mm.y + (G.cam.y - VH / 2 / Z) * sy, VW / Z * sx, VH / Z * sy);
 
-  // boss bar
+  // boss bar (Overlord, or a living mini-boss)
+  const mini = !(G.boss && !G.boss.dead) && G.minis.find(m => !m.dead);
+  if (mini) {
+    const room = LW - 680;
+    const w = room > 200 ? Math.min(460, room) : Math.min(460, LW * 0.5), x = LW / 2 - w / 2, y = room > 200 ? 18 : 84;
+    panel(x - 10, y - 6, w + 20, 46);
+    txt(mini.T.title, LW / 2, y + 12, 13, '#ffcf33', 'center');
+    ctx.fillStyle = '#300'; ctx.fillRect(x, y + 20, w, 12);
+    ctx.fillStyle = '#d43a2a'; ctx.fillRect(x, y + 20, w * mini.hp / mini.maxHp, 12);
+  }
   if (G.boss && !G.boss.dead) {
     const room = LW - 680;
     const w = room > 200 ? Math.min(460, room) : Math.min(460, LW * 0.5), x = LW / 2 - w / 2, y = room > 200 ? 18 : 84;
@@ -2425,6 +2853,7 @@ function drawHUD() {
   if (!touchMode && !padMode) txt('H: help   P: pause   M: ' + (muted ? 'unmute' : 'mute'), 14, 92, 11, 'rgba(230,245,210,0.6)', 'left', false);
   else if (touchMode && VH > VW) txt('Tip: turn your phone sideways for a bigger view', LW / 2, LH - 120, 14, '#ffe9a0', 'center');
   if (showHelp) drawHelp(LW, LH);
+  if (G.views) { ctx.fillStyle = 'rgba(10,14,8,0.85)'; ctx.fillRect(LW / 2 - 2, 0, 4, LH); }
 
   // virtual sticks (screen space)
   if (touchMode) {
@@ -2436,6 +2865,69 @@ function drawHUD() {
       ctx.fillStyle = st === aimStick ? 'rgba(255,190,90,0.6)' : 'rgba(184,255,122,0.55)'; circle(st.x, st.y, 26);
     }
   }
+}
+// phones & tablets: health plus one big weapon button (tap = next weapon), leaving the thumb area clear
+function drawTouchPanel(s, LH) {
+  const x = 12, y = LH - 86, w = 236;
+  panel(x, y, w, 74);
+  if (s.driving) {
+    const v = s.driving;
+    txt('DRIVING ' + TYPES[v.type].name.toUpperCase(), x + 12, y + 22, 13, '#ffd76a');
+    hpBarHUD(x + 12, y + 32, w - 24, 10, v.hp / v.maxHp);
+    txt('Tap EXIT to hop out', x + 12, y + 62, 12, '#ffe9a0');
+    return;
+  }
+  txt('SARGE', x + 12, y + 20, 13, '#ffd76a');
+  hpBarHUD(x + 70, y + 10, w - 82, 11, s.dead ? 0 : s.hp / s.maxHp);
+  if (s.dead && s.respawn > 0) { txt(`Redeploying in ${Math.ceil(s.respawn)}...`, x + w / 2, y + 52, 13, '#fff', 'center'); return; }
+  const sl = SARGE_SLOTS[s.slot], am = s.ammo[s.slot];
+  ctx.fillStyle = 'rgba(120,180,70,0.45)'; rrect(x + 10, y + 28, w - 20, 38, 7); ctx.fill();
+  txt(sl.name, x + 22, y + 53, 15, '#fff');
+  txt(am === Infinity ? '∞' : String(Math.floor(am)), x + w / 2 + 20, y + 53, 15, am === 0 ? '#ff6a5a' : '#ffd76a', 'center');
+  txt('NEXT ▸', x + w - 22, y + 52, 12, '#d9f7b5', 'right');
+  hudButtons.push({ x: x + 10, y: y + 28, w: w - 20, h: 38, fn: () => cycleWeapon(1, s) });
+}
+function drawPlayerPanel(s, bx, by, pw) {
+  const n = SARGE_SLOTS.length, sw = 54, pad2 = s !== G.sarge || padMode, mp = multiplayer();
+  const name = mp ? (s.team === 't' ? 'P2 · TAN' : `P${s.pid + 1}`) : 'SARGE';
+  panel(bx, by, pw, 92);
+  if (s.driving) {
+    const v = s.driving;
+    txt((mp ? name + ' · ' : '') + 'DRIVING: ' + TYPES[v.type].name.toUpperCase(), bx + 12, by + 22, 13, '#ffd76a');
+    hpBarHUD(bx + 210, by + 12, pw - 222, 12, v.hp / v.maxHp);
+    txt(`Weapon: ${{ j_mg: 'Mounted machine gun', g_cannon: 'Tank cannon', h_rockets: 'Rocket pods', p_guns: 'Wing guns + bombs' }[v.T.weapon] || ''}  ·  unlimited ammo`, bx + 12, by + 50, 13, '#e7f5c9', 'left', false);
+    txt(v.T.kind === 'heli' ? 'Flies over obstacles.' : v.T.kind === 'plane' ? 'Never stops flying.' : 'Ram enemy soldiers to flatten them.', bx + 12, by + 70, 12, '#c9d8b0', 'left', false);
+    txt(pad2 ? 'Press Y to hop out' : touchMode ? 'Tap EXIT to hop out' : 'Press E to hop out', bx + pw - 12, by + 70, 12, '#ffe9a0', 'right');
+    return;
+  }
+  txt(name, bx + 12, by + 22, 13, s.pid === 1 ? (s.team === 't' ? '#ffcf8a' : '#9fe8ff') : '#ffd76a');
+  hpBarHUD(bx + 80, by + 12, pw - 92, 12, s.dead ? 0 : s.hp / s.maxHp);
+  if (s.dead && s.respawn > 0) txt(`Redeploying in ${Math.ceil(s.respawn)}...`, bx + pw / 2 + 30, by + 22, 11, '#fff', 'center');
+  for (let i = 0; i < n; i++) {
+    const x = bx + 12 + i * (sw + 4), y = by + 34, h = 48, on = s.slot === i;
+    ctx.fillStyle = on ? 'rgba(120,180,70,0.45)' : 'rgba(255,255,255,0.06)'; rrect(x, y, sw, h, 6); ctx.fill();
+    if (on) { ctx.strokeStyle = '#b8ff7a'; ctx.lineWidth = 2; ctx.stroke(); }
+    if (!touchMode && !pad2) txt(String(i + 1), x + 5, y + 12, 9, '#c9d8b0', 'left', false);
+    txt(SARGE_SLOTS[i].name, x + sw / 2, y + 28, 11, on ? '#fff' : '#cfd9be', 'center');
+    const am = s.ammo[i];
+    txt(am === Infinity ? '∞' : String(Math.floor(am)), x + sw / 2, y + 43, 12, am === 0 ? '#ff6a5a' : '#ffd76a', 'center');
+    if (s === G.sarge) hudButtons.push({ x, y, w: sw, h, fn: () => { s.slot = i; } });
+  }
+}
+// Player 2's recruit list (controller only), mirrored on the right edge
+function drawP2Recruits(LW) {
+  const p2 = G.p2, y0 = 112, bw = 120, bh = 44, x0 = LW - 12 - (2 * bw + 6), purse = G[purseKey(p2)];
+  txt('P2 RECRUIT  (D-pad + X)', x0 + 2, y0 - 6, 11, p2.team === 't' ? '#ffcf8a' : '#9fe8ff');
+  RECRUITS.forEach((t, i) => {
+    const T = TYPES[t], x = x0 + (i % 2) * (bw + 6), y = y0 + Math.floor(i / 2) * (bh + 5), afford = purse >= T.cost;
+    panel(x, y, bw, bh);
+    if (!afford) { ctx.fillStyle = 'rgba(0,0,0,0.38)'; rrect(x, y, bw, bh, 8); ctx.fill(); }
+    if ((p2.rc || 0) === i) { ctx.strokeStyle = p2.team === 't' ? '#ffcf8a' : '#9fe8ff'; ctx.lineWidth = 3; rrect(x - 1, y - 1, bw + 2, bh + 2, 8); ctx.stroke(); }
+    if (T.vehicle) { ctx.save(); ctx.translate(x + 21, y + bh / 2); ctx.scale(0.5, 0.5); drawVehicle({ x: 0, y: 0, r: T.r, a: -Math.PI / 2, ta: -Math.PI / 2, anim: G.time, moving: false, flash: 0, team: p2.team, T }); ctx.restore(); }
+    else drawSoldier({ x: x + 21, y: y + bh / 2, r: 10, a: -Math.PI / 2, moving: false, anim: 0 }, p2.team, T.weapon, false);
+    txt(T.name, x + 40, y + 19, 12, afford ? '#e7f5c9' : '#8a957a');
+    txt(`${T.cost}`, x + 40, y + 36, 11, afford ? '#9ef06a' : '#7a8a6a', 'left', false);
+  });
 }
 function hpBarHUD(x, y, w, h, f) {
   ctx.fillStyle = '#2a1a14'; rrect(x, y, w, h, 4); ctx.fill();
@@ -2545,7 +3037,7 @@ function drawTitle(dt) {
   HS = Math.min(1, VH / 700, VW / 820);
   const LW = VW / HS, LH = VH / HS, cx = LW / 2;
   ctx.setTransform(DPR * HS, 0, 0, DPR * HS, 0, 0);
-  const top = Math.max(110, LH * 0.5 - 250);
+  const top = Math.max(110, LH * 0.5 - 285);
   const pulse = 1 + Math.sin(titleT * 2) * 0.02;
   ctx.save(); ctx.translate(cx, top); ctx.scale(pulse, pulse);
   txt('PLASTIC FRONT', 0, 0, 76, '#d6ffb0', 'center');
@@ -2553,31 +3045,119 @@ function drawTitle(dt) {
   txt('Green vs. Tan', cx, top + 40, 24, '#ffe08a', 'center');
   txt('Lead your little green army men against the evil Tan Overlord and his minions.', cx, top + 74, 15, '#e7f5c9', 'center', false);
 
+  // game mode
+  MODES.forEach((m, i) => menuBtn(cx - 195 + i * 132, top + 92, 126, 36, MODE_NAMES[m], gameMode === m, () => setMode(i)));
+  const pc = padCount();
+  txt(gameMode === 'campaign' ? 'One player' + (touchMode ? '' : padMode ? ' · X switches mode' : ' · Tab switches mode')
+    : `P1: ${pc >= 2 ? 'controller 1' : touchMode ? 'touch' : 'keyboard + mouse'} · P2: controller ${pc >= 2 ? 2 : 1}  ·  ${pc ? pc + ' controller' + (pc > 1 ? 's' : '') + ' connected' : 'connect a controller'}`,
+    cx, top + 148, 12, pc || gameMode === 'campaign' ? '#c9d8b0' : '#ff9a7a', 'center', false);
+  const o = 62; // everything below shifts down to make room for the mode row
   // difficulty
-  txt('DIFFICULTY', cx, top + 112, 12, '#c9d8b0', 'center');
-  DIFFS.forEach((d, i) => menuBtn(cx - 195 + i * 132, top + 122, 126, 40, d.name, diffIdx === i, () => setDifficulty(i)));
-  txt(DIFF().desc, cx, top + 182, 13, '#ffe9a0', 'center', false);
+  txt(gameMode === 'versus' ? 'DIFFICULTY (not used in Versus)' : 'DIFFICULTY', cx, top + 112 + o, 12, '#c9d8b0', 'center');
+  DIFFS.forEach((d, i) => menuBtn(cx - 195 + i * 132, top + 122 + o, 126, 40, d.name, diffIdx === i, () => setDifficulty(i)));
+  txt(DIFF().desc, cx, top + 182 + o, 13, '#ffe9a0', 'center', false);
 
   // mission select
-  txt('MISSION', cx, top + 214, 12, '#c9d8b0', 'center');
+  txt(gameMode === 'versus' ? 'BATTLEFIELD' : 'MISSION', cx, top + 214 + o, 12, '#c9d8b0', 'center');
   const L = LEVELS[missionSel];
-  menuBtn(cx - 195, top + 224, 44, 48, '◀', false, () => setMission(missionSel - 1));
-  menuBtn(cx + 151, top + 224, 44, 48, '▶', false, () => setMission(missionSel + 1));
-  ctx.fillStyle = 'rgba(16,22,12,0.75)'; rrect(cx - 145, top + 224, 290, 48, 10); ctx.fill();
-  txt(`${missionSel + 1}. ${L.name}`, cx, top + 245, 16, '#fff', 'center');
-  txt(`${L.w} × ${L.h} · ${L.bunkers.length} bunkers${L.boss ? ' · boss' : ''}`, cx, top + 263, 11, '#b5c4a0', 'center', false);
+  menuBtn(cx - 195, top + 224 + o, 44, 48, '◀', false, () => setMission(missionSel - 1));
+  menuBtn(cx + 151, top + 224 + o, 44, 48, '▶', false, () => setMission(missionSel + 1));
+  ctx.fillStyle = 'rgba(16,22,12,0.75)'; rrect(cx - 145, top + 224 + o, 290, 48, 10); ctx.fill();
+  txt(`${missionSel + 1}. ${L.name}`, cx, top + 245 + o, 16, '#fff', 'center');
+  txt(gameMode === 'versus' ? `${L.w} × ${L.h} · HQ vs HQ` : `${L.w} × ${L.h} · ${L.bunkers.length} bunkers${L.boss ? ' · boss' : ''}`, cx, top + 263 + o, 11, '#b5c4a0', 'center', false);
 
-  // deploy + manual
-  menuBtn(cx - 195, top + 290, 230, 54, 'DEPLOY', true, deploy, touchMode ? 'tap to start' : padMode ? 'press A' : 'Enter');
-  menuBtn(cx + 45, top + 290, 150, 54, 'Field Manual', false, openManual, touchMode ? 'all controls' : padMode ? 'press View' : 'press R');
-  if (window.PF3D) menuBtn(cx - 75, top + 350, 150, 36, 'Classic 2D', false, () => { try { location.href = 'index.html'; } catch (e) { /* blocked */ } });
-  else menuBtn(cx - 75, top + 350, 150, 36, 'Try 3D (preview)', false, () => { try { location.href = '3d.html'; } catch (e) { /* blocked */ } });
+  // continue / deploy / manual
+  if (campaign) {
+    menuBtn(cx - 195, top + 290 + o, 128, 54, 'CONTINUE', true, continueCampaign, `mission ${campaign.mission + 1}${touchMode ? '' : padMode ? ' · Y' : ' · C'}`);
+    menuBtn(cx - 61, top + 290 + o, 128, 54, 'DEPLOY', false, deploy, touchMode ? 'new game' : padMode ? 'A · new' : 'Enter · new');
+    menuBtn(cx + 73, top + 290 + o, 122, 54, 'Field Manual', false, openManual, touchMode ? 'controls' : padMode ? 'View' : 'R');
+  } else {
+    menuBtn(cx - 195, top + 290 + o, 230, 54, 'DEPLOY', true, deploy, touchMode ? 'tap to start' : padMode ? 'press A' : 'Enter');
+    menuBtn(cx + 45, top + 290 + o, 150, 54, 'Field Manual', false, openManual, touchMode ? 'all controls' : padMode ? 'press View' : 'press R');
+  }
+  const got = MEDALS.filter(m => medals[m.id]).length;
+  menuBtn(cx - 195, top + 352 + o, 118, 38, `Medals ${got}/${MEDALS.length}`, false, () => { state = 'medals'; }, touchMode ? '' : padMode ? 'LB' : 'G');
+  if (window.PF3D) menuBtn(cx - 67, top + 352 + o, 134, 38, 'Classic 2D', false, () => { try { location.href = 'index.html'; } catch (e) { /* blocked */ } });
+  else menuBtn(cx - 67, top + 352 + o, 134, 38, 'Try 3D', false, () => { try { location.href = '3d.html'; } catch (e) { /* blocked */ } });
+  menuBtn(cx + 77, top + 352 + o, 118, 38, `Armory ★${stars}`, false, () => { state = 'armory'; menuCursor = 0; }, touchMode ? '' : padMode ? 'RB' : 'U');
   if (window.PF3D) txt('3D PREVIEW', cx, top - 74, 14, '#ffe08a', 'center');
   const how = touchMode ? 'Left thumb moves · Right thumb aims & fires · Tap buttons to recruit, command and drive'
     : padMode ? 'D-pad: ◀ ▶ difficulty, ▲ ▼ mission · A deploy · View opens the field manual'
     : '← → difficulty · ↑ ↓ mission · Enter deploy · In game: WASD move, mouse aim/fire, H help';
-  txt(how, cx, top + 408, 12, '#c9d8b0', 'center', false);
+  txt(how, cx, top + 414 + o, 12, '#c9d8b0', 'center', false);
   txt('Keyboard + mouse, Xbox controller, or touch (landscape works best)', cx, LH - 16, 12, 'rgba(230,245,210,0.55)', 'center', false);
+}
+function menuFrame() {
+  HS = Math.min(1, VH / 700, VW / 820);
+  const LW = VW / HS, LH = VH / HS;
+  ctx.setTransform(DPR * HS, 0, 0, DPR * HS, 0, 0);
+  hudButtons = [];
+  return { LW, LH, cx: LW / 2 };
+}
+function drawArmory(afterMission) {
+  const { LW, LH, cx } = menuFrame();
+  ctx.fillStyle = afterMission ? 'rgba(10,14,8,0.8)' : '#1d2a14'; ctx.fillRect(0, 0, LW, LH);
+  let y = Math.max(40, LH / 2 - 300);
+  if (afterMission) {
+    txt('MISSION COMPLETE', cx, y + 30, 40, '#b8ff7a', 'center');
+    const e = G.starsEarned || [];
+    txt(e.map(([l]) => '★ ' + l).join('    '), cx, y + 62, 15, '#ffe08a', 'center', false);
+    txt(`Tan troops destroyed: ${G.kills}  ·  Squad lost: ${G.lost}  ·  Next: ${LEVELS[G.idx + 1].name}`, cx, y + 86, 13, '#c9d8b0', 'center', false);
+    y += 100;
+  }
+  txt('ARMORY', cx, y + 30, 28, '#d6ffb0', 'center');
+  txt(`★ ${stars} star${stars === 1 ? '' : 's'} to spend  ·  upgrades are permanent`, cx, y + 54, 14, '#ffe08a', 'center', false);
+  const w = 560, x0 = cx - w / 2;
+  UPGRADES.forEach((U, i) => {
+    const yy = y + 70 + i * 54, lvl = upgrades[U.id] || 0, cost = upCost(lvl), on = padMode && menuCursor === i;
+    ctx.fillStyle = on ? 'rgba(120,180,70,0.35)' : 'rgba(16,22,12,0.75)'; rrect(x0, yy, w, 48, 8); ctx.fill();
+    if (on) { ctx.strokeStyle = '#ffe08a'; ctx.lineWidth = 2; ctx.stroke(); }
+    txt(`${touchMode || padMode ? '' : (i + 1) + '. '}${U.name}`, x0 + 14, yy + 20, 15, '#e7f5c9');
+    txt(U.desc, x0 + 14, yy + 38, 12, '#b5c4a0', 'left', false);
+    for (let k = 0; k < 3; k++) { ctx.fillStyle = k < lvl ? '#ffd34a' : 'rgba(255,255,255,0.15)'; star(x0 + 360 + k * 22, yy + 24, 8); }
+    const can = lvl < 3 && stars >= cost;
+    ctx.fillStyle = lvl >= 3 ? 'rgba(255,255,255,0.08)' : can ? 'rgba(120,180,70,0.9)' : 'rgba(255,255,255,0.1)'; rrect(x0 + w - 110, yy + 8, 98, 32, 7); ctx.fill();
+    txt(lvl >= 3 ? 'MAXED' : `Buy ★${cost}`, x0 + w - 61, yy + 29, 13, lvl >= 3 ? '#9aa38a' : can ? '#fff' : '#9aa38a', 'center');
+    hudButtons.push({ x: x0 + w - 110, y: yy + 8, w: 98, h: 32, fn: () => buyUpgrade(U.id) });
+  });
+  const by = y + 70 + UPGRADES.length * 54 + 8, on = padMode && menuCursor === UPGRADES.length;
+  menuBtn(cx - 120, by, 240, 46, afterMission ? 'CONTINUE ▶' : 'BACK', true, leaveArmory, padMode ? (on ? 'press A' : 'Menu') : touchMode ? '' : 'Enter');
+  if (on) { ctx.strokeStyle = '#ffe08a'; ctx.lineWidth = 3; rrect(cx - 122, by - 2, 244, 50, 10); ctx.stroke(); }
+}
+function drawMedals() {
+  const { LW, LH, cx } = menuFrame();
+  ctx.fillStyle = '#1d2a14'; ctx.fillRect(0, 0, LW, LH);
+  const got = MEDALS.filter(m => medals[m.id]).length;
+  const top = Math.max(30, LH / 2 - 330);
+  txt('MEDALS', cx, top + 36, 34, '#d6ffb0', 'center');
+  txt(`${got} of ${MEDALS.length} earned  ·  ${stats.kills || 0} tan troops defeated  ·  ${stats.bunkers || 0} bunkers destroyed  ·  ${stats.builds || 0} structures built`, cx, top + 62, 13, '#ffe08a', 'center', false);
+  const colW = 330, x0 = cx - colW - 6;
+  MEDALS.forEach((m, i) => {
+    const x = x0 + (i % 2) * (colW + 12), y = top + 80 + Math.floor(i / 2) * 58, has = !!medals[m.id];
+    ctx.fillStyle = has ? 'rgba(120,180,70,0.3)' : 'rgba(16,22,12,0.7)'; rrect(x, y, colW, 50, 8); ctx.fill();
+    ctx.fillStyle = has ? '#ffd34a' : 'rgba(255,255,255,0.15)'; star(x + 26, y + 25, 14);
+    txt(m.name, x + 50, y + 21, 14, has ? '#fff' : '#9aa38a');
+    let d = m.desc; if (m.stat && !has) d += `  (${Math.min(stats[m.stat] || 0, m.goal)}/${m.goal})`;
+    txt(d, x + 50, y + 39, 12, has ? '#d9f7b5' : '#7f8a72', 'left', false);
+  });
+  const by = top + 80 + Math.ceil(MEDALS.length / 2) * 58 + 6;
+  menuBtn(cx - 100, by, 200, 42, 'BACK', true, () => { state = 'title'; }, touchMode ? '' : padMode ? 'B' : 'Esc');
+}
+function drawToasts(dt) {
+  if (!toasts.length) return;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  toasts.slice(0, 1).forEach(t => {   // one at a time, queued
+    const a = Math.min(1, t.t * 2, (4.5 - t.t) * 5 + 0.2), w = Math.min(380, VW - 40), x = VW / 2 - w / 2;
+    const y = state === 'play' && G && G.boss && !G.boss.dead ? 70 : 8;
+    ctx.globalAlpha = Math.max(0, a);
+    ctx.fillStyle = 'rgba(30,40,18,0.92)'; rrect(x, y, w, 56, 10); ctx.fill(); ctx.strokeStyle = '#ffd34a'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#ffd34a'; star(x + 30, y + 28, 15);
+    txt(t.title.toUpperCase(), x + 56, y + 20, 11, '#ffe08a');
+    txt(t.text, x + 56, y + 38, 15, '#fff');
+    if (t.sub) txt(t.sub, x + 56, y + 51, 10, '#c9d8b0', 'left', false);
+  });
+  ctx.globalAlpha = 1;
+  toasts[0].t -= dt; if (toasts[0].t <= 0) toasts.shift();
 }
 function drawOverlay(title, lines, prompt, col) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -2588,9 +3168,9 @@ function drawOverlay(title, lines, prompt, col) {
 }
 function onClickOverlay() {
   if (state === 'title') deploy();
-  else if (state === 'levelwin') newLevel(G.idx + 1);
   else if (state === 'over') { carry = { plastic: levelStartCarry.plastic, squad: levelStartCarry.squad.slice() }; newLevel(G.idx); }
-  else if (state === 'victory') { state = 'title'; G = null; titleArmy = null; }
+  else if (state === 'victory' || state === 'vsover') { state = 'title'; G = null; titleArmy = null; }
+  else if (state === 'over' && false) { /* handled above */ }
   else if (state === 'paused') state = 'play';
 }
 
@@ -2600,21 +3180,28 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   pollPad();
+  applyZoom();
   if (state === 'title') drawTitle(dt);
+  else if (state === 'medals') drawMedals();
+  else if (state === 'armory' && !G) drawArmory(false);
   else {
     if (state === 'play') update(dt);
     if (use3D()) {
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, VW, VH);
       window.PF3D.render(dt);
       window.PF3D.overlay(ctx);
-    } else drawWorld();
+    } else if (G.views) drawWorldViews();
+    else drawWorld();
     drawWeather(); drawHUD();
     const mins = Math.floor(G.time / 60), secs = String(Math.floor(G.time % 60)).padStart(2, '0');
     if (state === 'paused') drawOverlay('PAUSED', [touchMode ? 'Tap to resume' : padMode ? 'Press Menu or A to resume' : 'Press P or Esc to resume'], null, '#d6ffb0');
-    else if (state === 'levelwin') drawOverlay('MISSION COMPLETE', [`Tan troops destroyed: ${G.kills}   ·   Squad lost: ${G.lost}   ·   Time ${mins}:${secs}`, `Surviving squad members and plastic carry over (+100 bonus plastic).`, `Next: ${LEVELS[G.idx + 1].name}`], 'Click to continue', '#b8ff7a');
+    else if (state === 'levelwin') drawArmory(true);
+    else if (state === 'armory') drawArmory(false);
     else if (state === 'over') drawOverlay('MISSION FAILED', [G.reason || '', 'The tan menace grows stronger...'], 'Click to retry mission', '#ff7a5a');
+    else if (state === 'vsover') drawOverlay(G.winner === 1 ? 'GREEN WINS!' : 'TAN WINS!', [`Player ${G.winner} destroyed the enemy HQ in ${mins}:${secs}.`, 'Rematch from the title screen (Versus mode).'], 'Click to return to the title', G.winner === 1 ? '#b8ff7a' : '#ffcf8a');
     else if (state === 'victory') drawOverlay('VICTORY!', ['The Tan Overlord is melted down into a puddle.', `Final mission: ${G.kills} tan troops destroyed in ${mins}:${secs}.`, 'The backyard is safe — for now.'], 'Click to return to the title', '#ffe08a');
   }
+  drawToasts(dt);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
