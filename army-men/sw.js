@@ -1,6 +1,6 @@
 // Plastic Front offline cache. Scope: /army-men/ only (MyPlan keeps its own worker at the site root).
 // Bump VERSION whenever game files change so players get the update.
-const VERSION = 'plasticfront-v2';
+const VERSION = 'plasticfront-v3';
 const FILES = [
   './',
   'index.html',

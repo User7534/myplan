@@ -257,7 +257,7 @@ let menuCursor = 0;
 
 // bunker / boss positions are fractions of the map size; HQ is always on the left edge
 const LEVELS = [
-  { name: 'Operation Backyard', theme: 'grass', w: 4200, h: 2800, brief: 'Destroy all three Tan bunkers. Your jeep is waiting: walk up and press E to drive.',
+  { name: 'Operation Backyard', theme: 'grass', w: 4200, h: 2800, brief: 'Destroy all three Tan bunkers. Your jeep is waiting: walk up to it to drive.',
     bunkers: [[0.6, 0.2], [0.86, 0.5], [0.6, 0.82]], spawnRate: 7, cap: 4, raid: 0.25, waveT: 75,
     mix: [['t_rifle', 0.85], ['t_jeep', 0.15]], guards: 3, obstacles: 110 },
   { name: 'Kitchen Floor Offensive', theme: 'tile', w: 4800, h: 3000, brief: 'Four bunkers, plus Tan tanks and jeeps. Wipe them out.',
@@ -2721,15 +2721,27 @@ function drawHUD() {
   // bottom-left: Sarge (or the vehicle he drives); Player 2 bottom-right
   const n = SARGE_SLOTS.length, sw = 54, pw = 16 + n * (sw + 4);
   const bx = 12, by = LH - 104;
-  drawPlayerPanel(s, bx, by, pw);
+  if (touchMode && !G.p2) drawTouchPanel(s, LH); else drawPlayerPanel(s, bx, by, pw);
   if (G.p2) drawPlayerPanel(G.p2, LW - pw - 12, by, pw);
   // recruit grid (2 columns) on the left
   const mm = minimapRect();
   const y0 = 112, bw = 120, bh = 44;
-  txt((multiplayer() ? 'P1 ' : '') + (padMode ? 'RECRUIT  (D-pad + X)' : 'RECRUIT'), 14, y0 - 6, 11, '#c9d8b0');
   if (G.p2) drawP2Recruits(LW);
-  RECRUITS.forEach((t, i) => {
-    const T = TYPES[t], x = 12 + (i % 2) * (bw + 6), y = y0 + Math.floor(i / 2) * (bh + 5);
+  // on touch screens the list folds into one button so the left side stays free for the move stick
+  const folded = touchMode && !G.recruitOpen;
+  if (touchMode) {
+    const on = !!G.recruitOpen;
+    ctx.fillStyle = on ? 'rgba(120,180,70,0.85)' : 'rgba(16,22,12,0.8)'; rrect(12, 92, 126, 40, 8); ctx.fill();
+    ctx.strokeStyle = on ? '#d6ffb0' : 'rgba(160,200,110,0.45)'; ctx.lineWidth = 1.5; ctx.stroke();
+    txt(on ? 'RECRUIT ▾' : 'RECRUIT ▸', 75, 117, 14, '#fff', 'center');
+    hudButtons.push({ x: 12, y: 92, w: 126, h: 40, fn: () => { G.recruitOpen = !G.recruitOpen; sfx('order'); } });
+    ctx.fillStyle = G.buildMode ? 'rgba(200,160,60,0.9)' : 'rgba(16,22,12,0.8)'; rrect(144, 92, 96, 40, 8); ctx.fill();
+    ctx.strokeStyle = G.buildMode ? '#ffe9a0' : 'rgba(160,200,110,0.45)'; ctx.stroke();
+    txt(G.buildMode ? 'BUILDING' : 'BUILD', 192, 117, 13, '#fff', 'center');
+    hudButtons.push({ x: 144, y: 92, w: 96, h: 40, fn: () => toggleBuild() });
+  } else txt((multiplayer() ? 'P1 ' : '') + (padMode ? 'RECRUIT  (D-pad + X)' : 'RECRUIT'), 14, y0 - 6, 11, '#c9d8b0');
+  if (!folded) RECRUITS.forEach((t, i) => {
+    const T = TYPES[t], x = 12 + (i % 2) * (bw + 6), y = y0 + (touchMode ? 30 : 0) + Math.floor(i / 2) * (bh + 5);
     const afford = G.plastic >= T.cost && !G.hq.dead;
     panel(x, y, bw, bh);
     if (!afford) { ctx.fillStyle = 'rgba(0,0,0,0.38)'; rrect(x, y, bw, bh, 8); ctx.fill(); }
@@ -2741,9 +2753,9 @@ function drawHUD() {
     } else drawSoldier({ x: x + 21, y: y + bh / 2, r: 10, a: -Math.PI / 2, moving: false, anim: 0 }, 'g', T.weapon, false);
     txt(T.name, x + 40, y + 19, 12, afford ? '#e7f5c9' : '#8a957a');
     txt(touchMode || padMode ? `${T.cost}` : `[${T.key}] ${T.cost}`, x + 40, y + 36, 11, afford ? '#9ef06a' : '#7a8a6a', 'left', false);
-    hudButtons.push({ x, y, w: bw, h: bh, fn: () => recruit(t) });
+    hudButtons.push({ x, y, w: bw, h: bh, fn: () => { recruit(t); if (touchMode) G.recruitOpen = false; } });
   });
-  {
+  if (!touchMode) {
     const i = RECRUITS.length, x = 12 + (i % 2) * (bw + 6), y = y0 + Math.floor(i / 2) * (bh + 5);
     ctx.fillStyle = G.buildMode ? 'rgba(200,160,60,0.9)' : 'rgba(16,22,12,0.78)'; rrect(x, y, bw, bh, 8); ctx.fill();
     ctx.strokeStyle = G.buildMode ? '#ffe9a0' : 'rgba(160,200,110,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
@@ -2853,6 +2865,27 @@ function drawHUD() {
       ctx.fillStyle = st === aimStick ? 'rgba(255,190,90,0.6)' : 'rgba(184,255,122,0.55)'; circle(st.x, st.y, 26);
     }
   }
+}
+// phones & tablets: health plus one big weapon button (tap = next weapon), leaving the thumb area clear
+function drawTouchPanel(s, LH) {
+  const x = 12, y = LH - 86, w = 236;
+  panel(x, y, w, 74);
+  if (s.driving) {
+    const v = s.driving;
+    txt('DRIVING ' + TYPES[v.type].name.toUpperCase(), x + 12, y + 22, 13, '#ffd76a');
+    hpBarHUD(x + 12, y + 32, w - 24, 10, v.hp / v.maxHp);
+    txt('Tap EXIT to hop out', x + 12, y + 62, 12, '#ffe9a0');
+    return;
+  }
+  txt('SARGE', x + 12, y + 20, 13, '#ffd76a');
+  hpBarHUD(x + 70, y + 10, w - 82, 11, s.dead ? 0 : s.hp / s.maxHp);
+  if (s.dead && s.respawn > 0) { txt(`Redeploying in ${Math.ceil(s.respawn)}...`, x + w / 2, y + 52, 13, '#fff', 'center'); return; }
+  const sl = SARGE_SLOTS[s.slot], am = s.ammo[s.slot];
+  ctx.fillStyle = 'rgba(120,180,70,0.45)'; rrect(x + 10, y + 28, w - 20, 38, 7); ctx.fill();
+  txt(sl.name, x + 22, y + 53, 15, '#fff');
+  txt(am === Infinity ? '∞' : String(Math.floor(am)), x + w / 2 + 20, y + 53, 15, am === 0 ? '#ff6a5a' : '#ffd76a', 'center');
+  txt('NEXT ▸', x + w - 22, y + 52, 12, '#d9f7b5', 'right');
+  hudButtons.push({ x: x + 10, y: y + 28, w: w - 20, h: 38, fn: () => cycleWeapon(1, s) });
 }
 function drawPlayerPanel(s, bx, by, pw) {
   const n = SARGE_SLOTS.length, sw = 54, pad2 = s !== G.sarge || padMode, mp = multiplayer();

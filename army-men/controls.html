@@ -89,7 +89,7 @@
     <h2 id="kb">Keyboard</h2>
     <div class="legend" id="legend"></div>
     <div class="plate scroll"><svg id="keyboard" role="img" aria-label="Keyboard diagram with game controls labeled on each key"></svg></div>
-    <p class="lede">On the title screen, <kbd>←</kbd> <kbd>→</kbd> pick the difficulty, <kbd>↑</kbd> <kbd>↓</kbd> pick the mission, <kbd>Enter</kbd> deploys and <kbd>R</kbd> opens this manual.</p>
+    <p class="lede">On the title screen: <kbd>Tab</kbd> switches game mode, <kbd>←</kbd> <kbd>→</kbd> difficulty, <kbd>↑</kbd> <kbd>↓</kbd> mission, <kbd>Enter</kbd> deploys, <kbd>C</kbd> continues your saved campaign, <kbd>U</kbd> opens the Armory, <kbd>G</kbd> the Medals and <kbd>R</kbd> this manual. On a controller: <kbd>X</kbd> mode, <kbd>Y</kbd> continue, <kbd>LB</kbd> medals, <kbd>RB</kbd> Armory.</p>
   </section>
 
   <section aria-labelledby="mouse">
@@ -137,6 +137,51 @@
         </table>
       </div>
     </div>
+  </section>
+
+  <section aria-labelledby="modes">
+    <h2 id="modes">Game modes</h2>
+    <div class="plate scroll">
+      <table style="min-width:620px">
+        <tr><th>Mode</th><th>Players</th><th>How it works</th></tr>
+        <tr><td>Campaign</td><td>1</td><td>Ten missions against the Tan army. Progress saves after every win; <strong>Continue</strong> picks up where you left off.</td></tr>
+        <tr><td>Co-op</td><td>2</td><td>The campaign with a second commander on split-screen. Plastic and lives are shared; each player recruits and commands their own squad.</td></tr>
+        <tr><td>Versus</td><td>2</td><td>Green (P1) against Tan (P2) on any map. Each side has an HQ, its own plastic (+4 per second, plus bounties for kills) and unlimited respawns. Destroy the enemy HQ to win.</td></tr>
+      </table>
+    </div>
+    <p class="lede">Player 2 always uses a controller. With one controller connected, Player 1 plays on keyboard + mouse (or touch); with two, Player 1 takes the first controller. Each player's recruits follow them, and A / B / LT give orders to that player's squad only.</p>
+  </section>
+
+  <section aria-labelledby="armory">
+    <h2 id="armory">Armory and medals</h2>
+    <p class="lede">Every mission you win earns stars: 1 for the win, plus 1 each for losing no squad members, for Sarge never going down, and for playing on Hard. Spend them in the <strong>Armory</strong> (after each mission, or from the title screen). Upgrades are permanent and apply in Campaign and Co-op, never in Versus.</p>
+    <div class="plate scroll">
+      <table style="min-width:620px">
+        <tr><th>Upgrade</th><th>Per level (max 3)</th><th>Cost</th></tr>
+        <tr><td>Tougher Plastic</td><td>+15% health for Sarge and the squad</td><td class="num">★1 / ★2 / ★3</td></tr>
+        <tr><td>Veteran Training</td><td>+10% damage</td><td class="num">★1 / ★2 / ★3</td></tr>
+        <tr><td>Bigger Pockets</td><td>+30% starting ammo</td><td class="num">★1 / ★2 / ★3</td></tr>
+        <tr><td>Supply Lines</td><td>+15% plastic per kill, +60 at mission start</td><td class="num">★1 / ★2 / ★3</td></tr>
+        <tr><td>Rapid Engineers</td><td>Engineers build 30% faster</td><td class="num">★1 / ★2 / ★3</td></tr>
+        <tr><td>Field Medicine</td><td>Sarge and medics heal 50% faster</td><td class="num">★1 / ★2 / ★3</td></tr>
+      </table>
+    </div>
+    <p class="lede">18 <strong>medals</strong> track your career: First Blood, Ace Pilot, Tank Commander, Road Rage, Bridge Builder, Untouchable, Giant Killer, Overlord Slayer, Duelist and more. Open the Medals screen from the title to see progress toward each one.</p>
+  </section>
+
+  <section aria-labelledby="hazards">
+    <h2 id="hazards">Terrain hazards</h2>
+    <div class="plate scroll">
+      <table style="min-width:620px">
+        <tr><th>Hazard</th><th>Where</th><th>Effect</th></tr>
+        <tr><td>Ice</td><td>Tundra Push, Arctic Outpost</td><td>Slippery: you speed up slowly and slide when you let go</td></tr>
+        <tr><td>Oil slick</td><td>Garage Gauntlet</td><td>Slippery, like ice</td></tr>
+        <tr><td>Quicksand</td><td>Desert Dunes, Overlord's Sandbox</td><td>Slows ground units to 40%</td></tr>
+        <tr><td>Mud</td><td>Operation Backyard, Mountain Pass</td><td>Slows ground units to 60%</td></tr>
+        <tr><td>Sticky spill</td><td>Kitchen, Bedroom</td><td>Slows ground units to 60%</td></tr>
+      </table>
+    </div>
+    <p class="lede">Choppers and planes fly over every hazard. Lure tan troops into quicksand, and watch your tanks on the ice.</p>
   </section>
 
   <section aria-labelledby="build">
@@ -217,11 +262,11 @@
         <tr><td class="num">1</td><td>Operation Backyard</td><td class="num">4200 × 2800</td><td class="num">3</td><td>Tan riflemen, jeeps</td></tr>
         <tr><td class="num">2</td><td>Kitchen Floor Offensive</td><td class="num">4800 × 3000</td><td class="num">4</td><td>Bazookas, tanks</td></tr>
         <tr><td class="num">3</td><td>Bedroom Floor Brawl</td><td class="num">5000 × 3200</td><td class="num">4</td><td>Socks, crayons and storybooks as cover</td></tr>
-        <tr><td class="num">4</td><td>Garage Gauntlet</td><td class="num">5200 × 3400</td><td class="num">5</td><td>Mortars, choppers</td></tr>
+        <tr><td class="num">4</td><td>Garage Gauntlet</td><td class="num">5200 × 3400</td><td class="num">5</td><td>Mortars, choppers, oil slicks · mini-boss: <strong>Mega Tank</strong></td></tr>
         <tr><td class="num">5</td><td>Desert Dunes</td><td class="num">6000 × 3600</td><td class="num">5</td><td>Open sand, cacti, mesas, dust storms; lots of tan vehicles</td></tr>
         <tr><td class="num">6</td><td>Mountain Pass</td><td class="num">6000 × 4000</td><td class="num">5</td><td>Rocky ridges and pines funnel the fight; more choppers</td></tr>
         <tr><td class="num">7</td><td>Tundra Push</td><td class="num">6400 × 4000</td><td class="num">6</td><td>Frozen scrubland, falling snow</td></tr>
-        <tr><td class="num">8</td><td>Arctic Outpost</td><td class="num">6800 × 4200</td><td class="num">6</td><td>Blizzard, frozen lake, ice blocks you can blast apart</td></tr>
+        <tr><td class="num">8</td><td>Arctic Outpost</td><td class="num">6800 × 4200</td><td class="num">6</td><td>Blizzard, frozen lake, ice blocks · mini-boss: <strong>Snow Hawk bomber</strong></td></tr>
         <tr><td class="num">9</td><td>Living Room Rumble</td><td class="num">8000 × 5000</td><td class="num">7</td><td>Everything, on the biggest map</td></tr>
         <tr><td class="num">10</td><td>The Overlord's Sandbox</td><td class="num">5600 × 3600</td><td class="num">4 + boss</td><td>The shielded Tan Overlord</td></tr>
       </table>
