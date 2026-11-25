@@ -691,6 +691,20 @@ function genObstacles(rng, L) {
       x += Math.cos(a) * sz * 0.85; y += Math.sin(a) * sz * 0.85;
     }
   }
+  // terrain hazards: patches of ice, oil, quicksand, mud or sticky spills
+  G.hazards = [];
+  const HZ = { arctic: ['ice', 8, 200, 380], tundra: ['ice', 5, 160, 300], concrete: ['oil', 6, 110, 200], desert: ['quicksand', 6, 120, 210],
+    sand: ['quicksand', 4, 110, 180], grass: ['mud', 5, 120, 220], mountain: ['mud', 5, 120, 220], tile: ['spill', 5, 90, 170], bedroom: ['spill', 5, 100, 190] }[L.theme];
+  if (HZ) {
+    const [type, count, rmin, rmax] = HZ;
+    for (let n = 0, tries = 0; n < count * Math.max(1, WORLD_W * WORLD_H / 1.6e7) && tries < 400; tries++) {
+      const rx = rmin + rng() * (rmax - rmin), ry = rx * (0.45 + rng() * 0.35), x = WORLD_W * (0.15 + rng() * 0.8), y = 150 + rng() * (WORLD_H - 300);
+      if (protect.some(p => Math.hypot(p.x - x, p.y - y) < p.r + rx)) continue;
+      if (G.river) { const c = riverAt(y); if (Math.abs(c.x - x) < c.hw + rx + 30) continue; }
+      if (G.hazards.some(h => Math.hypot(h.x - x, h.y - y) < h.rx + rx)) continue;
+      G.hazards.push({ type, x, y, rx, ry, rot: rng() * Math.PI, seed: rng() }); n++;
+    }
+  }
   // sandbag walls guarding each bunker, facing the player's HQ
   for (const b of bpos) {
     const face = Math.atan2(hq.y - b.y, hq.x - b.x);
@@ -914,6 +928,55 @@ function collideObs(u) {
   u.x = clamp(u.x, u.r + 6, WORLD_W - u.r - 6); u.y = clamp(u.y, u.r + 6, WORLD_H - u.r - 6);
 }
 // river centre and half-width at a given y (linear between 20px samples)
+// ---------- terrain hazards ----------
+const HAZARD = {
+  ice: { slip: true, label: 'Slippery ice!' }, oil: { slip: true, label: 'Oil slick!' },
+  quicksand: { slow: 0.4, label: 'Quicksand!' }, mud: { slow: 0.6, label: 'Deep mud!' }, spill: { slow: 0.6, label: 'Sticky spill!' },
+};
+function hazardAt(x, y) {
+  if (!G.hazards) return null;
+  for (const h of G.hazards) {
+    const dx = x - h.x, dy = y - h.y, c = Math.cos(-h.rot), s = Math.sin(-h.rot);
+    const lx = dx * c - dy * s, ly = dx * s + dy * c;
+    if ((lx * lx) / (h.rx * h.rx) + (ly * ly) / (h.ry * h.ry) < 1) return h;
+  }
+  return null;
+}
+function applyHazards(dt) {
+  if (!G.hazards || !G.hazards.length) return;
+  for (const u of G.units) {
+    if (u.T.air || u.T.building || u._ox === undefined) continue;
+    const h = hazardAt(u.x, u.y), H = h && HAZARD[h.type];
+    const vx = (u.x - u._ox) / dt, vy = (u.y - u._oy) / dt;
+    if (H && H.slow) { u.x = u._ox + (u.x - u._ox) * H.slow; u.y = u._oy + (u.y - u._oy) * H.slow; u.svx = u.svy = 0; }
+    else if (H && H.slip) {
+      // low traction: keep most of last frame's momentum, so units slide and overshoot
+      u.svx = (u.svx || 0) + (vx - (u.svx || 0)) * 0.05; u.svy = (u.svy || 0) + (vy - (u.svy || 0)) * 0.05;
+      u.x = u._ox + u.svx * dt; u.y = u._oy + u.svy * dt; collideObs(u);
+    } else { u.svx = vx; u.svy = vy; }
+    if (H && (u === G.sarge || u.driver) && !G.hazardSeen?.[h.type]) { (G.hazardSeen ||= {})[h.type] = 1; floatText(u.x, u.y - 30, H.label, '#ffe9a0'); }
+  }
+  const s = G.sarge; if (s.driving) { s.x = s.driving.x; s.y = s.driving.y; }
+}
+function drawHazards(vis) {
+  for (const h of G.hazards || []) {
+    if (!vis(h.x, h.y, h.rx)) continue;
+    ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(h.rot);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, h.rx);
+    const col = { ice: ['rgba(190,230,252,0.95)', 'rgba(110,175,220,0.9)'], oil: ['rgba(20,18,22,0.92)', 'rgba(50,45,60,0.75)'], quicksand: ['rgba(214,180,120,0.95)', 'rgba(170,135,80,0.85)'],
+      mud: ['rgba(70,50,30,0.92)', 'rgba(100,75,45,0.8)'], spill: ['rgba(230,120,40,0.65)', 'rgba(150,60,140,0.45)'] }[h.type];
+    g.addColorStop(0, col[0]); g.addColorStop(1, col[1]);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, h.rx, h.ry, 0, 0, TAU); ctx.fill();
+    if (h.type === 'ice') { ctx.strokeStyle = 'rgba(80,140,190,0.7)'; ctx.lineWidth = 3; ctx.stroke(); }
+    ctx.lineWidth = 2;
+    if (h.type === 'ice') { ctx.strokeStyle = 'rgba(255,255,255,0.8)'; for (let i = 0; i < 5; i++) { const a = h.seed * 9 + i; ctx.beginPath(); ctx.moveTo(Math.cos(a) * h.rx * 0.2, Math.sin(a) * h.ry * 0.2); ctx.lineTo(Math.cos(a + 0.4) * h.rx * 0.8, Math.sin(a + 0.4) * h.ry * 0.8); ctx.stroke(); } }
+    else if (h.type === 'oil') { for (const [c2, k] of [['rgba(120,60,200,0.35)', 0.7], ['rgba(40,160,180,0.3)', 0.5], ['rgba(220,200,60,0.25)', 0.3]]) { ctx.strokeStyle = c2; ctx.beginPath(); ctx.ellipse(h.rx * 0.1, -h.ry * 0.1, h.rx * k, h.ry * k, 0.3, 0, TAU); ctx.stroke(); } }
+    else if (h.type === 'quicksand') { ctx.strokeStyle = 'rgba(120,90,50,0.55)'; const t = G.time * 0.6; for (let i = 1; i < 6; i++) { ctx.beginPath(); ctx.ellipse(0, 0, h.rx * i / 6, h.ry * i / 6, t * (i % 2 ? 1 : -1) * 0.2, 0, TAU * 0.8); ctx.stroke(); } }
+    else if (h.type === 'mud') { ctx.fillStyle = 'rgba(140,110,70,0.5)'; for (let i = 0; i < 9; i++) { const a = h.seed * 7 + i * 0.7; ellipse(Math.cos(a) * h.rx * 0.55, Math.sin(a) * h.ry * 0.55, 10 + (i % 3) * 6, 6 + (i % 2) * 4); } }
+    else { ctx.fillStyle = 'rgba(255,255,255,0.3)'; ellipse(-h.rx * 0.3, -h.ry * 0.3, h.rx * 0.25, h.ry * 0.15); }
+    ctx.restore();
+  }
+}
 function riverAt(y) {
   const R = G.river, f = clamp(y / R.step, 0, R.pts.length - 1.001), i = Math.floor(f), t = f - i, a = R.pts[i], b = R.pts[i + 1];
   return { x: a.x + (b.x - a.x) * t, hw: a.hw + (b.hw - a.hw) * t };
@@ -1432,6 +1495,7 @@ function update(dt) {
   mouse.wx = mw.x; mouse.wy = mw.y;
   G.shake = Math.max(0, G.shake - dt * 40);
 
+  for (const u of G.units) if (!u.T.air && !u.T.building) { u._ox = u.x; u._oy = u.y; }
   updateSarge(dt);
 
   // respawn
@@ -1472,6 +1536,7 @@ function update(dt) {
     else tanAI(u, dt);
   }
   separate();
+  applyHazards(dt);
 
   updateBullets(dt);
 
@@ -2315,6 +2380,7 @@ function drawWorld() {
   }
 
   drawRiverExtras(vis);
+  drawHazards(vis);
   for (const o of G.obs) if (vis(o.x, o.y, Math.max(o.w, o.h))) drawObstacle(o);
   for (const j of G.jobs) drawBlueprint(j.id, j.x, j.y, j.vert, true, j.progress / j.need);
   if (G.buildMode) {

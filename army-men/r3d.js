@@ -517,6 +517,20 @@ function buildLevel(G) {
   // static obstacles merged into two meshes; destructible ones kept separate so they can disappear
   const gloss = [], mat = [];
   if (G.river) buildRiver(G.river);
+  for (const h of G.hazards || []) {
+    const mat = {
+      ice: new THREE.MeshPhysicalMaterial({ color: '#8cc4e8', roughness: 0.03, clearcoat: 1, transparent: true, opacity: 0.88 }),
+      oil: new THREE.MeshPhysicalMaterial({ color: '#141216', roughness: 0.05, metalness: 0.4, clearcoat: 1, iridescence: 0.8, iridescenceIOR: 1.4 }),
+      quicksand: new THREE.MeshStandardMaterial({ color: '#cfa96d', roughness: 1 }),
+      mud: new THREE.MeshPhysicalMaterial({ color: '#4d3620', roughness: 0.35, clearcoat: 0.6 }),
+      spill: new THREE.MeshPhysicalMaterial({ color: '#d9762e', roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.7 }),
+    }[h.type];
+    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 40), mat);
+    m.rotation.x = -Math.PI / 2; m.rotation.z = -h.rot; m.scale.set(h.rx, h.ry, 1); m.position.set(h.x, 0.4, h.y); m.receiveShadow = true;
+    levelGroup.add(m);
+    if (h.type === 'ice') { const rim = new THREE.Mesh(new THREE.RingGeometry(0.97, 1, 64), new THREE.MeshBasicMaterial({ color: '#4f8fc0', transparent: true, opacity: 0.8 })); rim.rotation.copy(m.rotation); rim.scale.copy(m.scale); rim.position.set(h.x, 0.5, h.y); levelGroup.add(rim); }
+    if (h.type === 'quicksand') for (let i = 1; i < 5; i++) { const ring = new THREE.Mesh(new THREE.RingGeometry(i / 5 - 0.012, i / 5, 48), new THREE.MeshBasicMaterial({ color: '#8f6b3c', transparent: true, opacity: 0.5 })); ring.rotation.copy(m.rotation); ring.scale.copy(m.scale); ring.position.set(h.x, 0.5, h.y); levelGroup.add(ring); }
+  }
   for (const o of G.obs) {
     o._r3d = true;
     if (o.kind === 'water') continue;
