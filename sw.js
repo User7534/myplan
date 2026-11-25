@@ -33,7 +33,8 @@ self.addEventListener("activate", function(e) {
       // Delete ALL old caches
       caches.keys().then(function(keys) {
         return Promise.all(
-          keys.filter(function(k) { return k !== CACHE; })
+          // only clear MyPlan's own old caches (other apps on this site, like /army-men/, keep theirs)
+          keys.filter(function(k) { return k !== CACHE && k.indexOf("myplan-") === 0; })
               .map(function(k) { return caches.delete(k); })
         );
       }),

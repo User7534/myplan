@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Plastic Front Field Manual</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -422,6 +424,10 @@ for (const k in CAT) {
 for (const a of document.querySelectorAll('a.back')) a.addEventListener('click', e => {
   if (document.referrer && history.length > 1) { e.preventDefault(); history.back(); }
 });
+</script>
+<script>
+  // offline support (only on real web hosting; skipped in the native app and in previews)
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
 </html>
