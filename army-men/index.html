@@ -167,6 +167,20 @@ const TYPES = {
 const RECRUITS = ['rifle', 'bazooka', 'flamer', 'medic', 'sniper', 'mortar', 'jeep', 'gtank', 'gheli'];
 const MAX_SQUAD = 16;
 
+// difficulty multipliers (enemy stats, pacing and your starting resources)
+const DIFFS = [
+  { name: 'Easy', desc: 'Weaker, slower tan forces · 4 lives · extra plastic', enemyHp: 0.75, enemyDmg: 0.6, spawn: 1.4, cap: -1, wave: 1.35, plastic: 260, lives: 4, bounty: 1.25 },
+  { name: 'Normal', desc: 'The standard campaign · 3 lives', enemyHp: 1, enemyDmg: 1, spawn: 1, cap: 0, wave: 1, plastic: 150, lives: 3, bounty: 1 },
+  { name: 'Hard', desc: 'Tougher, faster tan forces · 2 lives · less plastic', enemyHp: 1.3, enemyDmg: 1.4, spawn: 0.75, cap: 2, wave: 0.8, plastic: 100, lives: 2, bounty: 0.85 },
+];
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('plasticfront.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('plasticfront.' + k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
+};
+let diffIdx = clamp(store.get('difficulty', 1) | 0, 0, 2);
+let missionSel = 0;
+const DIFF = () => DIFFS[diffIdx];
+
 // bunker / boss positions are fractions of the map size; HQ is always on the left edge
 const LEVELS = [
   { name: 'Operation Backyard', theme: 'grass', w: 4200, h: 2800, brief: 'Destroy all three Tan bunkers. Your jeep is waiting: walk up and press E to drive.',
@@ -178,6 +192,9 @@ const LEVELS = [
   { name: 'Garage Gauntlet', theme: 'concrete', w: 5200, h: 3400, brief: 'Tan choppers and mortar teams ahead. Destroy all five bunkers.',
     bunkers: [[0.45, 0.18], [0.7, 0.12], [0.9, 0.5], [0.7, 0.88], [0.45, 0.8]], spawnRate: 6.5, cap: 5, raid: 0.38, waveT: 60,
     mix: [['t_rifle', 0.45], ['t_bazooka', 0.2], ['t_mortar', 0.12], ['t_jeep', 0.08], ['t_tank', 0.08], ['t_heli', 0.07]], guards: 3, obstacles: 135 },
+  { name: 'Living Room Rumble', theme: 'carpet', w: 8000, h: 5000, brief: 'The biggest battlefield yet. Every bunker you destroy becomes a green outpost.',
+    bunkers: [[0.3, 0.2], [0.35, 0.78], [0.55, 0.45], [0.62, 0.12], [0.7, 0.86], [0.85, 0.35], [0.9, 0.72]], spawnRate: 7, cap: 4, raid: 0.35, waveT: 60,
+    mix: [['t_rifle', 0.45], ['t_bazooka', 0.18], ['t_mortar', 0.1], ['t_jeep', 0.1], ['t_tank', 0.1], ['t_heli', 0.07]], guards: 3, obstacles: 230 },
   { name: "The Overlord's Sandbox", theme: 'sand', w: 5600, h: 3600, brief: "The bunkers power the Overlord's shield. Destroy them, then the Overlord!",
     bunkers: [[0.5, 0.15], [0.55, 0.85], [0.75, 0.3], [0.75, 0.7]], boss: [0.9, 0.5], spawnRate: 6, cap: 5, raid: 0.42, waveT: 55,
     mix: [['t_rifle', 0.42], ['t_bazooka', 0.2], ['t_mortar', 0.12], ['t_jeep', 0.08], ['t_tank', 0.1], ['t_heli', 0.08]], guards: 4, obstacles: 140 },
@@ -201,6 +218,7 @@ cvs.addEventListener('mousedown', e => {
   touchMode = false; padMode = false;
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (e.button === 0) {
+    if (state === 'title') { hudClick(mouse.x, mouse.y); return; }
     if (state !== 'play') { onClickOverlay(); return; }
     if (hudClick(mouse.x, mouse.y)) return;
     if (e.shiftKey) { mouse.drag = { x: mouse.wx, y: mouse.wy }; return; }
@@ -229,6 +247,7 @@ cvs.addEventListener('touchstart', e => {
   touchMode = true;
   for (const t of e.changedTouches) {
     const x = t.clientX, y = t.clientY;
+    if (state === 'title') { hudClick(x, y); return; }
     if (state !== 'play') { onClickOverlay(); return; }
     padMode = false;
     if (hudClick(x, y)) continue;
@@ -282,6 +301,15 @@ function pollPad() {
   if (now.some(Boolean)) initAudio();
   padPrev = now;
   if (!padMode) return;
+  if (state === 'title') {
+    if (pressed(14)) setDifficulty(diffIdx - 1);
+    if (pressed(15)) setDifficulty(diffIdx + 1);
+    if (pressed(12)) setMission(missionSel - 1);
+    if (pressed(13)) setMission(missionSel + 1);
+    if (pressed(0) || pressed(9)) deploy();
+    if (pressed(8)) openManual();
+    return;
+  }
   if (state !== 'play') {
     if (pressed(0) || pressed(9)) onClickOverlay();
     return;
@@ -315,7 +343,16 @@ function padOrder() {
 function onKeyPress(e) {
   initAudio();
   if (e.code === 'KeyM') { muted = !muted; return; }
-  if (state === 'title' || state === 'levelwin' || state === 'over' || state === 'victory') {
+  if (state === 'title') {
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') setDifficulty(diffIdx - 1);
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') setDifficulty(diffIdx + 1);
+    if (e.code === 'ArrowUp' || e.code === 'KeyW') setMission(missionSel - 1);
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') setMission(missionSel + 1);
+    if (e.code === 'Enter' || e.code === 'Space') deploy();
+    if (e.code === 'KeyR') openManual();
+    return;
+  }
+  if (state === 'levelwin' || state === 'over' || state === 'victory') {
     if (e.code === 'Enter' || e.code === 'Space') onClickOverlay();
     return;
   }
@@ -335,7 +372,15 @@ function onKeyPress(e) {
 let state = 'title';
 let G = null;
 let showHelp = false;
-const START_CARRY = () => ({ plastic: 150, squad: ['rifle', 'rifle', 'jeep'] });
+// starting resources; jumping straight to a later mission brings a bigger squad
+const START_CARRY = (idx = 0) => ({
+  plastic: DIFF().plastic + idx * 150,
+  squad: ['rifle', 'rifle', 'jeep', ...(idx >= 2 ? ['bazooka', 'medic'] : []), ...(idx >= 3 ? ['gtank', 'sniper'] : [])],
+});
+function setDifficulty(i) { diffIdx = (i + 3) % 3; store.set('difficulty', diffIdx); sfx('order'); }
+function setMission(i) { missionSel = (i + LEVELS.length) % LEVELS.length; sfx('order'); }
+function deploy() { carry = START_CARRY(missionSel); newLevel(missionSel); }
+function openManual() { try { window.location.href = 'controls.html'; } catch (e) { /* navigation blocked */ } }
 let carry = START_CARRY();
 let levelStartCarry = null;
 let UID = 1;
@@ -350,6 +395,7 @@ function spawn(type, x, y, extra) {
     cd: rand(0, 0.8), target: null, retarget: rand(0, 0.3), order: { type: 'follow' },
     flash: 0, stuck: 0, detourT: 0, detourDir: 1, anim: rand(0, 6), moving: false, lastHit: 0,
   };
+  if (T.team === 't') { u.hp = u.maxHp = Math.round(T.hp * DIFF().enemyHp); }
   if (extra) Object.assign(u, extra);
   G.units.push(u);
   return u;
@@ -361,8 +407,8 @@ function newLevel(idx) {
   levelStartCarry = { plastic: carry.plastic, squad: carry.squad.slice() };
   G = {
     L, idx, units: [], bullets: [], parts: [], obs: [], pickups: [], decals: [], texts: [], pings: [],
-    time: 0, shake: 0, plastic: carry.plastic, lives: 3, cam: { x: 400, y: 1000 }, sel: new Set(), mines: [],
-    banner: null, respawn: 0, boss: null, endT: 0, waveT: L.waveT, kills: 0, lost: 0, ground: null,
+    time: 0, shake: 0, plastic: carry.plastic, lives: DIFF().lives, cam: { x: 400, y: 1000 }, sel: new Set(), mines: [], outposts: [],
+    banner: null, respawn: 0, boss: null, endT: 0, waveT: L.waveT * DIFF().wave, kills: 0, lost: 0, ground: null,
   };
   WORLD_W = L.w; WORLD_H = L.h;
   const midY = WORLD_H / 2;
@@ -371,7 +417,7 @@ function newLevel(idx) {
   carry.squad.forEach((t, i) => { const a = i * 2.4, rr = TYPES[t].vehicle ? 120 : 60; spawn(t, 450 + Math.cos(a) * rr, midY + Math.sin(a) * rr); });
   G.bunkers = L.bunkers.map(([fx, fy]) => {
     const x = fx * WORLD_W, y = fy * WORLD_H;
-    const b = spawn('bunker', x, y, { spawnT: rand(2, L.spawnRate), kids: 0 });
+    const b = spawn('bunker', x, y, { spawnT: rand(2, L.spawnRate * DIFF().spawn), kids: 0 });
     for (let i = 0; i < L.guards; i++) {
       const a = rand(0, TAU);
       spawnTan(b, pickMix(L.mix, Math.random), x + Math.cos(a) * 90, y + Math.sin(a) * 90, false);
@@ -408,6 +454,7 @@ function genObstacles(rng, L) {
     tile: ['block', 'crate', 'pencil', 'block', 'crate', 'block'],
     concrete: ['tire', 'crate', 'block', 'sandbag', 'crate', 'tire', 'rock'],
     sand: ['rock', 'crate', 'sandbag', 'block', 'crate', 'sandbag'],
+    carpet: ['book', 'block', 'crate', 'block', 'crate', 'book', 'tire'],
   }[L.theme];
   const blockCols = ['#d63c32', '#2f6fd6', '#f2c230', '#e8772a', '#8a3fc2', '#e9e9e9'];
   const hq = { x: 330, y: WORLD_H / 2 };
@@ -435,8 +482,9 @@ function genObstacles(rng, L) {
     else if (kind === 'sandbag') { w = 100; h = 28; hp = 180; if (rng() < 0.5) [w, h] = [h, w]; }
     else if (kind === 'pencil') { w = 240; h = 22; if (rng() < 0.5) [w, h] = [h, w]; }
     else if (kind === 'tire') { w = h = 56 + Math.floor(rng() * 2) * 16; }
+    else if (kind === 'book') { w = 150 + rng() * 90; h = 105 + rng() * 50; if (rng() < 0.5) [w, h] = [h, w]; }
     const o = { kind, x: 80 + rng() * (WORLD_W - 160 - w), y: 80 + rng() * (WORLD_H - 160 - h), w, h, hp, maxHp: hp,
-      color: blockCols[Math.floor(rng() * blockCols.length)], seed: rng() };
+      color: kind === 'book' ? ['#3b5b8c', '#8c3b3b', '#3b7a4a', '#c99a2e', '#4a3b6b'][Math.floor(rng() * 5)] : blockCols[Math.floor(rng() * blockCols.length)], seed: rng() };
     if (add(o)) placed++;
   }
   // sandbag walls guarding each bunker, facing the player's HQ
@@ -454,9 +502,10 @@ function genObstacles(rng, L) {
 
 function renderGround(theme, rng) {
   const c = document.createElement('canvas');
-  c.width = Math.ceil(WORLD_W / 2); c.height = Math.ceil(WORLD_H / 2);
+  const f = WORLD_W * WORLD_H > 2.5e7 ? 1 / 3 : 1 / 2; // coarser texture for huge maps keeps memory in check
+  c.width = Math.ceil(WORLD_W * f); c.height = Math.ceil(WORLD_H * f);
   const g = c.getContext('2d');
-  g.scale(0.5, 0.5);
+  g.scale(f, f);
   const k = WORLD_W * WORLD_H / 6e6; // detail scales with map area
   const blobs = (n, style, rx, ry) => {
     for (let i = 0; i < n * k; i++) {
@@ -501,6 +550,25 @@ function renderGround(theme, rng) {
       for (let j = 0; j < 5; j++) { x += rng() * 50 - 25; y += rng() * 50 - 25; g.lineTo(x, y); } g.stroke();
     }
     for (let i = 0; i < 5000 * k; i++) { g.fillStyle = rng() < 0.5 ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.2)'; g.fillRect(rng() * WORLD_W, rng() * WORLD_H, 2, 2); }
+  } else if (theme === 'carpet') {
+    g.fillStyle = '#7a3a2e'; g.fillRect(0, 0, WORLD_W, WORLD_H);
+    blobs(160, () => `rgba(${90 + rng() * 50},${30 + rng() * 25},${25 + rng() * 20},0.3)`, [60, 160], [40, 90]);
+    // a big patterned area rug in the middle of the room
+    const rx = WORLD_W * 0.2, ry = WORLD_H * 0.14, rw = WORLD_W * 0.6, rh = WORLD_H * 0.72;
+    g.fillStyle = '#2f4a6b'; g.fillRect(rx, ry, rw, rh);
+    g.strokeStyle = '#d9b35a'; g.lineWidth = 46; g.strokeRect(rx + 70, ry + 70, rw - 140, rh - 140);
+    g.strokeStyle = '#a8452f'; g.lineWidth = 20; g.strokeRect(rx + 150, ry + 150, rw - 300, rh - 300);
+    g.fillStyle = 'rgba(217,179,90,0.16)';
+    for (let y = ry + 260; y < ry + rh - 260; y += 220) for (let x = rx + 260; x < rx + rw - 260; x += 220) {
+      g.beginPath(); g.moveTo(x, y - 70); g.lineTo(x + 70, y); g.lineTo(x, y + 70); g.lineTo(x - 70, y); g.closePath(); g.fill();
+    }
+    const cx = rx + rw / 2, cy = ry + rh / 2;
+    [[620, '#d9b35a'], [500, '#a8452f'], [360, '#2f4a6b'], [220, '#d9b35a']].forEach(([r, col]) => {
+      g.fillStyle = col; g.beginPath(); g.moveTo(cx, cy - r); g.lineTo(cx + r * 1.3, cy); g.lineTo(cx, cy + r); g.lineTo(cx - r * 1.3, cy); g.closePath(); g.fill();
+    });
+    g.strokeStyle = '#e8dcc0'; g.lineWidth = 6; // fringe
+    for (let y = ry; y < ry + rh; y += 18) { g.beginPath(); g.moveTo(rx, y); g.lineTo(rx - 40, y); g.moveTo(rx + rw, y); g.lineTo(rx + rw + 40, y); g.stroke(); }
+    for (let i = 0; i < 6000 * k; i++) { g.fillStyle = rng() < 0.5 ? 'rgba(255,220,200,0.12)' : 'rgba(0,0,0,0.18)'; g.fillRect(rng() * WORLD_W, rng() * WORLD_H, 3, 3); }
   } else {
     g.fillStyle = '#dcc08a'; g.fillRect(0, 0, WORLD_W, WORLD_H);
     blobs(200, () => `rgba(${150 + rng() * 60},${120 + rng() * 40},${70 + rng() * 30},0.25)`, [40, 140], [20, 60]);
@@ -618,6 +686,7 @@ function damage(u, amt, fromTeam) {
     if (Math.random() < 0.3) { addPart({ x: u.x + rand(-30, 30), y: u.y + rand(-30, 30), vx: 0, vy: 0, life: 0.3, size: 10, col: '#7fe8ff', type: 'flash' }); sfx('shield', u.x, u.y); }
     return;
   }
+  if (fromTeam === 't') amt *= DIFF().enemyDmg;
   u.hp -= amt; u.flash = 0.08; u.lastHit = G.time;
   if (u === G.sarge) { G.sarge.regenT = 4; if (amt > 5) { sfx('hurt'); rumble(0.5, 0.3, 120); } }
   if (u.driver && amt > 5) rumble(0.4, 0.4, 90);
@@ -628,7 +697,7 @@ function kill(u) {
   u.dead = true;
   if (u.team === 't') {
     G.kills++;
-    const b = u.T.bounty || 0;
+    const b = Math.round((u.T.bounty || 0) * DIFF().bounty);
     if (b) { G.plastic += b; floatText(u.x, u.y - 20, '+' + b, '#bff27a'); }
     const src = G.units.find(x => x.id === u.src); if (src) src.kids--;
     if (!u.T.building && u.type !== 'boss') {
@@ -657,14 +726,15 @@ function kill(u) {
   }
 
   if (u.type === 'bunker') {
+    G.outposts.push({ x: u.x, y: u.y });
     const left = G.bunkers.filter(b => !b.dead).length;
-    if (left > 0) banner('Bunker destroyed!', left + ' remaining', 2.5);
+    if (left > 0) banner('Bunker destroyed!', left + ' remaining · outpost established for reinforcements', 2.8);
     else if (G.boss && !G.boss.dead) { G.boss.shield = false; banner('SHIELD DOWN!', 'The Tan Overlord is vulnerable. Take him out!', 3.5); sfx('alarm'); }
   }
   if (u.type === 'boss') banner('THE OVERLORD HAS FALLEN!', 'Plastic justice is served.', 4);
   if (u === G.sarge) {
     G.lives--;
-    if (G.lives > 0 && !G.hq.dead) { G.respawn = 4; banner('Sarge is down!', 'Redeploying from HQ...', 3); }
+    if (G.lives > 0 && !G.hq.dead) { G.respawn = 4; banner('Sarge is down!', 'Redeploying from the nearest outpost...', 3); }
     else { G.endT = 2.5; G.result = 'over'; G.reason = G.hq.dead ? 'HQ destroyed' : 'Sarge is out of lives'; }
   }
   if (u === G.hq) { G.endT = 2.5; G.result = 'over'; G.reason = 'Your HQ was destroyed'; banner('HQ DESTROYED', '', 3); }
@@ -727,11 +797,18 @@ function recruit(type) {
   if (squad().length >= MAX_SQUAD) { banner('', 'Squad is at max size (' + MAX_SQUAD + ')', 1.5); sfx('deny'); return; }
   if (G.plastic < T.cost) { banner('', 'Need ' + T.cost + ' plastic for a ' + T.name, 1.5); sfx('deny'); return; }
   G.plastic -= T.cost;
-  const a = rand(-1, 1);
-  const u = spawn(type, G.hq.x + Math.cos(a) * 70, G.hq.y + Math.sin(a) * 70);
+  const sp = spawnPoint(G.sarge), a = rand(0, TAU), off = sp === G.hq ? 70 : 55;
+  const u = spawn(type, sp.x + Math.cos(a) * off, sp.y + Math.sin(a) * off);
+  if (!T.air) collideObs(u);
   u.order = { type: 'follow' };
   floatText(u.x, u.y - 24, T.name + ' ready!', '#bff27a');
   sfx('recruit');
+}
+// HQ or the outpost closest to `near`, where recruits arrive and Sarge redeploys
+function spawnPoint(near) {
+  let best = G.hq, bd = Infinity;
+  for (const p of [G.hq, ...G.outposts]) { const d = dist(p, near); if (d < bd) { bd = d; best = p; } }
+  return best;
 }
 function orderFollow() {
   for (const u of cmdUnits()) u.order = { type: 'follow' };
@@ -911,7 +988,8 @@ function update(dt) {
   if (s.dead && G.respawn > 0) {
     G.respawn -= dt;
     if (G.respawn <= 0 && !G.hq.dead) {
-      s.dead = false; s.hp = s.maxHp; s.x = G.hq.x + 80; s.y = G.hq.y; s.driving = null;
+      const sp = spawnPoint(s);
+      s.dead = false; s.hp = s.maxHp; s.x = sp.x + 80; s.y = sp.y; s.driving = null; collideObs(s);
       SARGE_SLOTS.forEach((sl, i) => { if (sl.refill) s.ammo[i] = Math.max(s.ammo[i], Math.ceil(sl.ammo / 2)); });
       G.units.push(s); G.pings.push({ x: s.x, y: s.y, t: 0.8, col: '#9ef06a' });
     }
@@ -920,7 +998,7 @@ function update(dt) {
   // tan attack waves (from up to three bunkers)
   G.waveT -= dt;
   if (G.waveT <= 0) {
-    G.waveT = G.L.waveT;
+    G.waveT = G.L.waveT * DIFF().wave;
     const live = G.bunkers.filter(b => !b.dead).sort(() => Math.random() - 0.5).slice(0, 3);
     if (live.length) {
       banner('', '⚠ Tan attack wave incoming!', 2.5); sfx('alarm');
@@ -1157,8 +1235,8 @@ function buildingAI(u, dt) {
 function bunkerSpawn(b, dt) {
   b.spawnT -= dt;
   if (b.spawnT <= 0) {
-    b.spawnT = G.L.spawnRate * rand(0.8, 1.2);
-    if (b.kids < G.L.cap) {
+    b.spawnT = G.L.spawnRate * DIFF().spawn * rand(0.8, 1.2);
+    if (b.kids < G.L.cap + DIFF().cap) {
       const a = Math.PI + rand(-1.2, 1.2);
       spawnTan(b, pickMix(G.L.mix, Math.random), b.x + Math.cos(a) * 60, b.y + Math.sin(a) * 60, Math.random() < G.L.raid);
     }
@@ -1511,6 +1589,16 @@ function drawObstacle(o) {
     for (let i = 0; i < 12; i++) { const a = i / 12 * TAU; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r * 0.7, cy + Math.sin(a) * r * 0.7); ctx.lineTo(cx + Math.cos(a) * r * 0.95, cy + Math.sin(a) * r * 0.95); ctx.stroke(); }
     ctx.fillStyle = '#8f908a'; circle(cx, cy, r * 0.45);
     ctx.fillStyle = 'rgba(0,0,0,0.3)'; circle(cx + 2, cy + 2, r * 0.45);
+  } else if (o.kind === 'book') {
+    const vert = o.h > o.w;
+    ctx.fillStyle = shade(o.color, -0.35); rrect(o.x, o.y + 8, o.w, o.h, 4); ctx.fill(); // cover edge
+    ctx.fillStyle = '#efe6cf'; // pages
+    if (vert) ctx.fillRect(o.x + o.w - 10, o.y + 6, 8, o.h - 6); else ctx.fillRect(o.x + 6, o.y + o.h - 2, o.w - 12, 8);
+    ctx.fillStyle = o.color; rrect(o.x, o.y, o.w, o.h, 5); ctx.fill();
+    ctx.fillStyle = shade(o.color, -0.2); // spine
+    if (vert) ctx.fillRect(o.x, o.y, 16, o.h); else ctx.fillRect(o.x, o.y, o.w, 16);
+    ctx.fillStyle = 'rgba(255,230,160,0.75)'; // title plate
+    rrect(o.x + o.w * 0.28, o.y + o.h * 0.35, o.w * 0.44, Math.min(26, o.h * 0.18), 3); ctx.fill();
   } else if (o.kind === 'pencil') {
     const vert = o.h > o.w;
     ctx.translate(o.x + o.w / 2, o.y + o.h / 2); if (vert) ctx.rotate(Math.PI / 2);
@@ -1565,6 +1653,15 @@ function drawWorld() {
     }
   }
   ctx.globalAlpha = 1;
+
+  // green outposts on captured bunker sites
+  for (const o of G.outposts) {
+    if (!vis(o.x, o.y, 80)) continue;
+    for (let i = 0; i < 10; i++) { const a = i / 10 * TAU; ctx.fillStyle = i % 2 ? '#7a8a55' : '#6c7b4a'; ellipse(o.x + Math.cos(a) * 52, o.y + Math.sin(a) * 52, 11, 7); }
+    ctx.fillStyle = '#ddd'; ctx.fillRect(o.x - 2, o.y - 50, 3, 50);
+    const wave = Math.sin(G.time * 6 + o.x) * 3;
+    ctx.fillStyle = '#3fae2a'; ctx.beginPath(); ctx.moveTo(o.x + 1, o.y - 50); ctx.lineTo(o.x + 30, o.y - 42 + wave); ctx.lineTo(o.x + 1, o.y - 33); ctx.fill();
+  }
 
   // pickups
   for (const p of G.pickups) {
@@ -1733,7 +1830,7 @@ function drawHUD() {
   panel(LW - 232, 12, 220, 62);
   ctx.fillStyle = '#6fd13a'; circle(LW - 210, 36, 9); txt('P', LW - 210, 40, 11, '#1f3d0e', 'center');
   txt(`${Math.floor(G.plastic)} plastic`, LW - 194, 41, 16, '#d9f7b5');
-  txt(`Squad ${squad().length}/${MAX_SQUAD}${G.sel.size ? '  (' + G.sel.size + ' sel.)' : ''}`, LW - 222, 62, 12, '#c9d8b0', 'left', false);
+  txt(`Squad ${squad().length}/${MAX_SQUAD}${G.sel.size ? ' (' + G.sel.size + ' sel.)' : ''} · ${DIFF().name}`, LW - 222, 62, 12, '#c9d8b0', 'left', false);
   for (let i = 0; i < G.lives; i++) { ctx.fillStyle = '#79b347'; ctx.beginPath(); ctx.arc(LW - 30 - i * 18, 62, 7, Math.PI, 0); ctx.fill(); ctx.fillRect(LW - 39 - i * 18, 61, 18, 3); }
 
   // bottom-left: Sarge (or the vehicle he drives)
@@ -1767,7 +1864,7 @@ function drawHUD() {
   // recruit grid (2 columns) on the left
   const mm = minimapRect();
   const y0 = 112, bw = 120, bh = 44;
-  txt(padMode ? 'RECRUIT  (D-pad + X)' : 'RECRUIT AT HQ', 14, y0 - 6, 11, '#c9d8b0');
+  txt(padMode ? 'RECRUIT  (D-pad + X)' : 'RECRUIT', 14, y0 - 6, 11, '#c9d8b0');
   RECRUITS.forEach((t, i) => {
     const T = TYPES[t], x = 12 + (i % 2) * (bw + 6), y = y0 + Math.floor(i / 2) * (bh + 5);
     const afford = G.plastic >= T.cost && !G.hq.dead;
@@ -1803,11 +1900,13 @@ function drawHUD() {
   // minimap
   panel(mm.x - 4, mm.y - 4, mm.w + 8, mm.h + 8);
   const sx = mm.w / WORLD_W, sy = mm.h / WORLD_H;
-  ctx.fillStyle = { grass: '#3f6a28', tile: '#9c917a', concrete: '#6e6f6a', sand: '#b39a66' }[G.L.theme];
+  ctx.fillStyle = { grass: '#3f6a28', tile: '#9c917a', concrete: '#6e6f6a', sand: '#b39a66', carpet: '#6b3228' }[G.L.theme];
   ctx.fillRect(mm.x, mm.y, mm.w, mm.h);
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   for (const o of G.obs) ctx.fillRect(mm.x + o.x * sx, mm.y + o.y * sy, Math.max(1.5, o.w * sx), Math.max(1.5, o.h * sy));
   const me = s.driving || s;
+  ctx.fillStyle = '#3fae2a';
+  for (const o of G.outposts) ctx.fillRect(mm.x + o.x * sx - 3, mm.y + o.y * sy - 3, 6, 6);
   for (const u of G.units) {
     const big = u.T.building || u.type === 'boss';
     ctx.fillStyle = u === me ? '#fff36a' : u.team === 'g' ? '#7dff4a' : (u.type === 'boss' ? '#ff3a3a' : '#ffb04a');
@@ -1858,6 +1957,7 @@ function hpBarHUD(x, y, w, h, f) {
 function hudClick(sx, sy) {
   const x = sx / HS, y = sy / HS;
   for (const b of hudButtons) if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) { b.fn(); return true; }
+  if (!G || state !== 'play') return false;
   const mm = minimapRect();
   if (x >= mm.x && x <= mm.x + mm.w && y >= mm.y && y <= mm.y + mm.h) {
     if (touchMode) { orderAt((x - mm.x) / mm.w * WORLD_W, (y - mm.y) / mm.h * WORLD_H); commandMode = false; }
@@ -1926,8 +2026,16 @@ function drawHelp(LW, LH) {
 
 // ---------- screens ----------
 let titleArmy = null;
+function menuBtn(x, y, w, h, label, on, fn, sub) {
+  ctx.fillStyle = on ? 'rgba(120,180,70,0.9)' : 'rgba(16,22,12,0.75)'; rrect(x, y, w, h, 10); ctx.fill();
+  ctx.strokeStyle = on ? '#e7ffc9' : 'rgba(160,200,110,0.5)'; ctx.lineWidth = 2; ctx.stroke();
+  txt(label, x + w / 2, y + h / 2 + (sub ? -2 : 6), sub ? 16 : 17, on ? '#fff' : '#e7f5c9', 'center');
+  if (sub) txt(sub, x + w / 2, y + h / 2 + 15, 11, on ? '#f2ffe0' : '#b5c4a0', 'center', false);
+  hudButtons.push({ x, y, w, h, fn });
+}
 function drawTitle(dt) {
   titleT += dt;
+  hudButtons = [];
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   const grd = ctx.createLinearGradient(0, 0, 0, VH);
   grd.addColorStop(0, '#3d6326'); grd.addColorStop(1, '#22361a');
@@ -1942,18 +2050,40 @@ function drawTitle(dt) {
     if (s.sp > 0 && s.x > VW + 40) s.x = -40; if (s.sp < 0 && s.x < -40) s.x = VW + 40;
     drawSoldier(s, s.team, s.w, false);
   }
+  // menu is laid out in logical pixels and scaled to fit short phone screens
+  HS = Math.min(1, VH / 700, VW / 820);
+  const LW = VW / HS, LH = VH / HS, cx = LW / 2;
+  ctx.setTransform(DPR * HS, 0, 0, DPR * HS, 0, 0);
+  const top = Math.max(110, LH * 0.5 - 250);
   const pulse = 1 + Math.sin(titleT * 2) * 0.02;
-  ctx.save(); ctx.translate(VW / 2, VH * 0.38); ctx.scale(pulse, pulse);
-  txt('PLASTIC FRONT', 0, 0, Math.min(84, VW / 9), '#d6ffb0', 'center');
+  ctx.save(); ctx.translate(cx, top); ctx.scale(pulse, pulse);
+  txt('PLASTIC FRONT', 0, 0, 76, '#d6ffb0', 'center');
   ctx.restore();
-  txt('Green vs. Tan', VW / 2, VH * 0.38 + 44, 24, '#ffe08a', 'center');
-  txt(VW < 700 ? 'Lead the green army men against the Tan Overlord!' : 'Lead your little green army men against the evil Tan Overlord and his minions.', VW / 2, VH * 0.38 + 84, VW < 700 ? 14 : 16, '#e7f5c9', 'center', false);
+  txt('Green vs. Tan', cx, top + 40, 24, '#ffe08a', 'center');
+  txt('Lead your little green army men against the evil Tan Overlord and his minions.', cx, top + 74, 15, '#e7f5c9', 'center', false);
+
+  // difficulty
+  txt('DIFFICULTY', cx, top + 112, 12, '#c9d8b0', 'center');
+  DIFFS.forEach((d, i) => menuBtn(cx - 195 + i * 132, top + 122, 126, 40, d.name, diffIdx === i, () => setDifficulty(i)));
+  txt(DIFF().desc, cx, top + 182, 13, '#ffe9a0', 'center', false);
+
+  // mission select
+  txt('MISSION', cx, top + 214, 12, '#c9d8b0', 'center');
+  const L = LEVELS[missionSel];
+  menuBtn(cx - 195, top + 224, 44, 48, '◀', false, () => setMission(missionSel - 1));
+  menuBtn(cx + 151, top + 224, 44, 48, '▶', false, () => setMission(missionSel + 1));
+  ctx.fillStyle = 'rgba(16,22,12,0.75)'; rrect(cx - 145, top + 224, 290, 48, 10); ctx.fill();
+  txt(`${missionSel + 1}. ${L.name}`, cx, top + 245, 16, '#fff', 'center');
+  txt(`${L.w} × ${L.h} · ${L.bunkers.length} bunkers${L.boss ? ' · boss' : ''}`, cx, top + 263, 11, '#b5c4a0', 'center', false);
+
+  // deploy + manual
+  menuBtn(cx - 195, top + 290, 230, 54, 'DEPLOY', true, deploy, touchMode ? 'tap to start' : padMode ? 'press A' : 'Enter');
+  menuBtn(cx + 45, top + 290, 150, 54, 'Field Manual', false, openManual, touchMode ? 'all controls' : padMode ? 'press View' : 'press R');
   const how = touchMode ? 'Left thumb moves · Right thumb aims & fires · Tap buttons to recruit, command and drive'
-    : padMode ? 'Left stick move · Right stick aim · RT fire · LB/RB weapons · Y drive · LT send squad · View help'
-    : 'WASD move · Mouse aim/fire · 1-8 weapons · E drive · Z-N, J-L recruit · Right-click command squad · H help';
-  txt(how, VW / 2, VH * 0.38 + 112, VW < 700 ? 11 : 13, '#c9d8b0', 'center', false);
-  if (Math.floor(titleT * 2) % 2 === 0) txt(touchMode ? 'Tap to deploy' : padMode ? 'Press A to deploy' : 'Click or press Enter to deploy', VW / 2, VH * 0.38 + 160, 22, '#fff', 'center');
-  txt('Keyboard + mouse, Xbox controller, or touch (landscape works best)', VW / 2, VH - 20, 12, 'rgba(230,245,210,0.55)', 'center', false);
+    : padMode ? 'D-pad: ◀ ▶ difficulty, ▲ ▼ mission · A deploy · View opens the field manual'
+    : '← → difficulty · ↑ ↓ mission · Enter deploy · In game: WASD move, mouse aim/fire, H help';
+  txt(how, cx, top + 370, 12, '#c9d8b0', 'center', false);
+  txt('Keyboard + mouse, Xbox controller, or touch (landscape works best)', cx, LH - 16, 12, 'rgba(230,245,210,0.55)', 'center', false);
 }
 function drawOverlay(title, lines, prompt, col) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -1963,7 +2093,7 @@ function drawOverlay(title, lines, prompt, col) {
   if (prompt && Math.floor(performance.now() / 500) % 2 === 0) txt(touchMode ? prompt.replace('Click', 'Tap') : padMode ? prompt.replace('Click', 'Press A') : prompt, VW / 2, VH * 0.35 + 70 + lines.length * 28, 20, '#fff', 'center');
 }
 function onClickOverlay() {
-  if (state === 'title') { carry = START_CARRY(); newLevel(0); }
+  if (state === 'title') deploy();
   else if (state === 'levelwin') newLevel(G.idx + 1);
   else if (state === 'over') { carry = { plastic: levelStartCarry.plastic, squad: levelStartCarry.squad.slice() }; newLevel(G.idx); }
   else if (state === 'victory') { state = 'title'; G = null; titleArmy = null; }

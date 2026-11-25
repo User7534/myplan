@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Plastic Front Field Manual</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Layout: a field manual — one readable column of numbered-free sections, diagrams full width.
+     Deliberately single-theme (the game's own olive-drab world), so colors are set explicitly. */
+  :root {
+    color-scheme: dark;
+    --ground: #1b2114;      /* page */
+    --panel: #252d1c;       /* cards & diagram plates */
+    --line: #3d4a2c;        /* rules, key outlines */
+    --ink: #e7f0d6;         /* body text */
+    --muted: #a9b893;       /* secondary text */
+    --green: #79b347;       /* plastic green: accent */
+    --tan: #d9b77a;         /* the enemy */
+    --k-move: #4f8a2c;      /* key categories */
+    --k-fight: #b8862f;
+    --k-squad: #2f6f8c;
+    --k-recruit: #7a5a8c;
+    --k-system: #5b5f55;
+    --display: "Black Ops One", "Impact", "Arial Black", sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font: 16px/1.55 var(--body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: max(20px, env(safe-area-inset-top, 0px)) max(40px, env(safe-area-inset-bottom, 0px));
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: 44px; }
+  header { display: grid; gap: 10px; padding-top: 8px; }
+  .eyebrow { font: 600 12px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--tan); }
+  h1 { font: 400 clamp(36px, 7vw, 64px)/1 var(--display); margin: 0; color: #d6ffb0; letter-spacing: 0.02em; text-wrap: balance; }
+  h2 { font: 400 26px/1.1 var(--display); margin: 0 0 6px; color: #d6ffb0; letter-spacing: 0.03em; text-wrap: balance; }
+  h3 { font: 600 13px/1.2 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+  p { margin: 0; max-width: 65ch; }
+  .lede { color: var(--muted); font-size: 17px; }
+  .back {
+    justify-self: start; display: inline-flex; align-items: center; gap: 8px;
+    font: 600 14px/1 var(--mono); color: #13200a; background: var(--green);
+    padding: 11px 16px; border-radius: 8px; text-decoration: none;
+  }
+  .back:hover { background: #8fcb5a; }
+  .back:focus-visible, a:focus-visible { outline: 3px solid var(--tan); outline-offset: 3px; }
+  section { display: grid; gap: 16px; }
+  .plate { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; min-width: 0; }
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .scroll svg { display: block; min-width: 760px; width: 100%; height: auto; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font: 600 12px/1.2 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  kbd {
+    font: 600 13px/1 var(--mono); color: var(--ink); background: #1b2114; border: 1px solid var(--line);
+    border-bottom-width: 3px; border-radius: 5px; padding: 3px 7px; white-space: nowrap;
+  }
+  .tips { display: grid; gap: 10px; padding-left: 20px; margin: 0; max-width: 70ch; }
+  .tag { font: 600 11px/1 var(--mono); padding: 3px 6px; border-radius: 4px; background: #1b2114; color: var(--tan); border: 1px solid var(--line); }
+  @media (prefers-reduced-motion: no-preference) { .back { transition: background 0.15s; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Plastic Front · Green vs. Tan</span>
+    <h1>Field Manual</h1>
+    <p class="lede">Every control for keyboard and mouse, Xbox controller and touch, plus what each weapon and recruit does. Press <kbd>H</kbd> in game (or <kbd>View</kbd> on a controller) for a short version.</p>
+    <a class="back" href="index.html">◀ Back to the game</a>
+  </header>
+
+  <section aria-labelledby="kb">
+    <h2 id="kb">Keyboard</h2>
+    <div class="legend" id="legend"></div>
+    <div class="plate scroll"><svg id="keyboard" role="img" aria-label="Keyboard diagram with game controls labeled on each key"></svg></div>
+    <p class="lede">On the title screen, <kbd>←</kbd> <kbd>→</kbd> pick the difficulty, <kbd>↑</kbd> <kbd>↓</kbd> pick the mission, <kbd>Enter</kbd> deploys and <kbd>R</kbd> opens this manual.</p>
+  </section>
+
+  <section aria-labelledby="mouse">
+    <h2 id="mouse">Mouse</h2>
+    <div class="two">
+      <div class="plate"><svg id="mouseSvg" viewBox="-30 0 430 260" role="img" aria-label="Mouse diagram: left click fires, right click commands the squad, wheel switches weapons" style="width:100%;height:auto;display:block"></svg></div>
+      <div class="plate">
+        <table>
+          <tr><th>Input</th><th>Action</th></tr>
+          <tr><td>Move the mouse</td><td>Aim Sarge (or your vehicle's gun)</td></tr>
+          <tr><td>Left click / hold</td><td>Fire the current weapon</td></tr>
+          <tr><td>Right click ground</td><td>Send the squad there; they hold and defend</td></tr>
+          <tr><td>Right click enemy</td><td>Whole squad attacks that target</td></tr>
+          <tr><td>Right click minimap</td><td>Send the squad anywhere on the map</td></tr>
+          <tr><td>Wheel</td><td>Previous / next weapon</td></tr>
+          <tr><td><kbd>Shift</kbd> + drag</td><td>Select part of the squad (<kbd>Q</kbd> selects all again)</td></tr>
+          <tr><td>Click a HUD button</td><td>Switch weapon or recruit a unit</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="pad">
+    <h2 id="pad">Xbox controller</h2>
+    <p class="lede">Connect by USB or Bluetooth and press any button; the game switches to controller prompts automatically. Works in Chrome, Edge and Safari.</p>
+    <div class="plate scroll"><svg id="padSvg" viewBox="0 0 900 470" role="img" aria-label="Xbox controller diagram with each button's game action"></svg></div>
+  </section>
+
+  <section aria-labelledby="touch">
+    <h2 id="touch">Touch (phone &amp; tablet)</h2>
+    <div class="two">
+      <div class="plate"><svg id="touchSvg" viewBox="0 0 420 220" role="img" aria-label="Phone held sideways: left half is the move stick, right half aims and fires, buttons on the edges" style="width:100%;height:auto;display:block"></svg></div>
+      <div class="plate">
+        <table>
+          <tr><th>Touch</th><th>Action</th></tr>
+          <tr><td>Drag, left half</td><td>Move</td></tr>
+          <tr><td>Drag, right half</td><td>Aim &amp; fire (auto-aims at nearby enemies)</td></tr>
+          <tr><td>Weapon boxes</td><td>Switch weapon</td></tr>
+          <tr><td>Recruit buttons</td><td>Buy units</td></tr>
+          <tr><td>ORDER, then tap</td><td>Send the squad / attack a target</td></tr>
+          <tr><td>FOLLOW · GUARD</td><td>Squad follows Sarge / holds position</td></tr>
+          <tr><td>DRIVE · EXIT</td><td>Get in or out of a vehicle</td></tr>
+          <tr><td>Minimap</td><td>Tap to send the squad there</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="arsenal">
+    <h2 id="arsenal">Sarge's arsenal</h2>
+    <div class="plate scroll">
+      <table style="min-width:620px">
+        <tr><th>Key</th><th>Weapon</th><th>Starting ammo</th><th>Notes</th></tr>
+        <tr><td><kbd>1</kbd></td><td>Rifle</td><td class="num">∞</td><td>Reliable, never runs out</td></tr>
+        <tr><td><kbd>2</kbd></td><td>Machine gun</td><td class="num">300</td><td>Very fast fire, wide spread</td></tr>
+        <tr><td><kbd>3</kbd></td><td>Shotgun</td><td class="num">40</td><td>8 pellets per shot, short range</td></tr>
+        <tr><td><kbd>4</kbd></td><td>Sniper rifle</td><td class="num">20</td><td>Huge range; one round pierces up to 4 enemies</td></tr>
+        <tr><td><kbd>5</kbd></td><td>Bazooka</td><td class="num">8</td><td>Explosive rocket, great against tanks and bunkers. Slows you a little</td></tr>
+        <tr><td><kbd>6</kbd></td><td>Flamethrower</td><td class="num">160</td><td>Short-range cone that burns through groups</td></tr>
+        <tr><td><kbd>7</kbd></td><td>Grenade</td><td class="num">4</td><td>Thrown over walls; lands where you aim</td></tr>
+        <tr><td><kbd>8</kbd></td><td>Mine</td><td class="num">4</td><td>Dropped behind you; arms after 1 second</td></tr>
+      </table>
+    </div>
+    <p class="lede">Ammo crates refill every weapon. Smash wooden crates for ammo, health and plastic.</p>
+  </section>
+
+  <section aria-labelledby="units">
+    <h2 id="units">Recruits</h2>
+    <p class="lede">Spend plastic to recruit at your HQ or at any outpost (a destroyed tan bunker becomes a green outpost). New units appear at the spawn point closest to Sarge.</p>
+    <div class="plate scroll">
+      <table style="min-width:620px">
+        <tr><th>Key</th><th>Unit</th><th>Cost</th><th>Role</th></tr>
+        <tr><td><kbd>Z</kbd></td><td>Rifleman</td><td class="num">40</td><td>Cheap all-rounder</td></tr>
+        <tr><td><kbd>X</kbd></td><td>Bazooka</td><td class="num">90</td><td>Anti-tank and anti-bunker rockets</td></tr>
+        <tr><td><kbd>C</kbd></td><td>Flamer</td><td class="num">110</td><td>Tough close-range crowd clearer</td></tr>
+        <tr><td><kbd>V</kbd></td><td>Medic</td><td class="num">80</td><td>Heals soldiers and repairs vehicles</td></tr>
+        <tr><td><kbd>B</kbd></td><td>Sniper</td><td class="num">70</td><td>Long range, shots pierce</td></tr>
+        <tr><td><kbd>N</kbd></td><td>Mortar</td><td class="num">120</td><td>Lobs shells over obstacles; can't hit targets too close</td></tr>
+        <tr><td><kbd>J</kbd></td><td>Jeep <span class="tag">drivable</span></td><td class="num">150</td><td>Fast, mounted machine gun, runs over infantry</td></tr>
+        <tr><td><kbd>K</kbd></td><td>Tank <span class="tag">drivable</span></td><td class="num">300</td><td>Heavy armor and a cannon</td></tr>
+        <tr><td><kbd>L</kbd></td><td>Chopper <span class="tag">drivable</span></td><td class="num">380</td><td>Flies over obstacles, fires rockets</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="diff">
+    <h2 id="diff">Difficulty</h2>
+    <div class="plate scroll">
+      <table style="min-width:620px">
+        <tr><th></th><th>Easy</th><th>Normal</th><th>Hard</th></tr>
+        <tr><td>Tan health</td><td class="num">75%</td><td class="num">100%</td><td class="num">130%</td></tr>
+        <tr><td>Tan damage</td><td class="num">60%</td><td class="num">100%</td><td class="num">140%</td></tr>
+        <tr><td>Reinforcements</td><td>Slower, smaller</td><td>Standard</td><td>Faster, larger</td></tr>
+        <tr><td>Attack waves</td><td>Less often</td><td>Standard</td><td>More often</td></tr>
+        <tr><td>Lives</td><td class="num">4</td><td class="num">3</td><td class="num">2</td></tr>
+        <tr><td>Starting plastic</td><td class="num">260</td><td class="num">150</td><td class="num">100</td></tr>
+        <tr><td>Plastic per kill</td><td class="num">125%</td><td class="num">100%</td><td class="num">85%</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="missions">
+    <h2 id="missions">Missions</h2>
+    <div class="plate scroll">
+      <table style="min-width:620px">
+        <tr><th>#</th><th>Mission</th><th>Map size</th><th>Bunkers</th><th>New threats</th></tr>
+        <tr><td class="num">1</td><td>Operation Backyard</td><td class="num">4200 × 2800</td><td class="num">3</td><td>Tan riflemen, jeeps</td></tr>
+        <tr><td class="num">2</td><td>Kitchen Floor Offensive</td><td class="num">4800 × 3000</td><td class="num">4</td><td>Bazookas, tanks</td></tr>
+        <tr><td class="num">3</td><td>Garage Gauntlet</td><td class="num">5200 × 3400</td><td class="num">5</td><td>Mortars, choppers</td></tr>
+        <tr><td class="num">4</td><td>Living Room Rumble</td><td class="num">8000 × 5000</td><td class="num">7</td><td>Everything, on the biggest map</td></tr>
+        <tr><td class="num">5</td><td>The Overlord's Sandbox</td><td class="num">5600 × 3600</td><td class="num">4 + boss</td><td>The shielded Tan Overlord</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="tips">
+    <h2 id="tips">Field tips</h2>
+    <ol class="tips">
+      <li>Bunkers keep producing tan troops until destroyed. Bazookas, tank shells and grenades bring them down fastest.</li>
+      <li>On big maps, push from outpost to outpost: recruits and Sarge's respawns come from the outpost nearest to him.</li>
+      <li>Sarge slowly heals when he hasn't been hit for a few seconds. Medics heal everyone, and repair vehicles too.</li>
+      <li>Vehicles flatten tan infantry. Choppers ignore walls but can be shot down.</li>
+      <li>In the final mission the bunkers power the Overlord's shield. Destroy them first.</li>
+    </ol>
+    <a class="back" href="index.html">◀ Back to the game</a>
+  </section>
+</div>
+
+<script>
+'use strict';
+const NS = 'http://www.w3.org/2000/svg';
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const CAT = {
+  move: { col: css('--k-move'), label: 'Move' },
+  fight: { col: css('--k-fight'), label: 'Weapons & vehicles' },
+  squad: { col: css('--k-squad'), label: 'Squad orders' },
+  recruit: { col: css('--k-recruit'), label: 'Recruit' },
+  system: { col: css('--k-system'), label: 'Game' },
+};
+// key -> [category, short action]
+const MAP = {
+  Esc: ['system', 'Pause'], P: ['system', 'Pause'], H: ['system', 'Help'], M: ['system', 'Mute'],
+  W: ['move', 'Up'], A: ['move', 'Left'], S: ['move', 'Down'], D: ['move', 'Right'],
+  '↑': ['move', ''], '↓': ['move', ''], '←': ['move', ''], '→': ['move', ''],
+  1: ['fight', 'Rifle'], 2: ['fight', 'MG'], 3: ['fight', 'Shotgun'], 4: ['fight', 'Sniper'],
+  5: ['fight', 'Bazooka'], 6: ['fight', 'Flamer'], 7: ['fight', 'Grenade'], 8: ['fight', 'Mine'],
+  E: ['fight', 'Drive'], F: ['fight', 'Drive'],
+  Space: ['squad', 'Squad: follow me'], G: ['squad', 'Guard'], Q: ['squad', 'Select all'], Shift: ['squad', '+drag select'],
+  Z: ['recruit', 'Rifleman'], X: ['recruit', 'Bazooka'], C: ['recruit', 'Flamer'], V: ['recruit', 'Medic'],
+  B: ['recruit', 'Sniper'], N: ['recruit', 'Mortar'], J: ['recruit', 'Jeep'], K: ['recruit', 'Tank'], L: ['recruit', 'Chopper'],
+  Enter: ['system', 'Start'],
+};
+const ROWS = [
+  [['Esc', 1.25], ['1'], ['2'], ['3'], ['4'], ['5'], ['6'], ['7'], ['8'], ['9'], ['0'], ['-'], ['='], ['Back', 1.75]],
+  [['Tab', 1.5], ['Q'], ['W'], ['E'], ['R'], ['T'], ['Y'], ['U'], ['I'], ['O'], ['P'], ['['], [']'], ['\\', 1.5]],
+  [['Caps', 1.75], ['A'], ['S'], ['D'], ['F'], ['G'], ['H'], ['J'], ['K'], ['L'], [';'], ["'"], ['Enter', 2.25]],
+  [['Shift', 2.25], ['Z'], ['X'], ['C'], ['V'], ['B'], ['N'], ['M'], [','], ['.'], ['/'], ['Shift', 2.75]],
+  [['Ctrl', 1.5], ['Alt', 1.25], ['Space', 5.5], ['Alt', 1.25], ['Ctrl', 1.5], ['gap', 1], ['←'], ['↓'], ['→']],
+];
+
+// legend
+const legend = document.getElementById('legend');
+for (const k in CAT) {
+  const s = document.createElement('span');
+  const i = document.createElement('i'); i.style.background = CAT[k].col;
+  s.append(i, CAT[k].label); legend.appendChild(s);
+}
+
+// keyboard
+(function keyboard() {
+  const svg = document.getElementById('keyboard');
+  const U = 62, G = 6, pad = 12;
+  const width = 15 * U + pad * 2, height = 5 * U + pad * 2;
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  const ink = css('--ink'), muted = css('--muted'), line = css('--line');
+  ROWS.forEach((row, r) => {
+    let x = pad;
+    const y = pad + r * U;
+    for (const [label, w = 1] of row) {
+      const kw = w * U - G;
+      if (label === 'gap') { x += w * U; continue; }
+      const m = MAP[label];
+      const half = U / 2 - G / 2;
+      if (label === '↓') { // arrow cluster fits in one row: ↑ on top, ← ↓ → below
+        drawKey(x, y, kw, half, '↑', MAP['↑']);
+        drawKey(x, y + U / 2, kw, half, '↓', m);
+      } else if (label === '←' || label === '→') drawKey(x, y + U / 2, kw, half, label, m);
+      else drawKey(x, y, kw, U - G, label, m);
+      x += w * U;
+    }
+  });
+  function drawKey(x, y, w, h, label, m) {
+    const fill = m ? CAT[m[0]].col : '#1e2517';
+    el('rect', { x, y, width: w, height: h, rx: 7, fill, stroke: m ? 'rgba(255,255,255,0.25)' : line, 'stroke-width': 1.5 }, svg);
+    el('rect', { x: x + 3, y: y + h - 5, width: w - 6, height: 3, rx: 1.5, fill: 'rgba(0,0,0,0.25)' }, svg);
+    const small = h < 40;
+    el('text', { x: x + 8, y: y + (small ? h / 2 + 5 : 20), fill: m ? '#fff' : muted, 'font-family': css('--mono'), 'font-size': small ? 13 : 15, 'font-weight': 600 }, svg, label);
+    if (m && m[1] && !small) {
+      el('text', { x: x + 8, y: y + h - 12, fill: '#fff', 'font-family': css('--body'), 'font-size': w > 120 ? 13 : 11, 'font-weight': 500, opacity: 0.92 }, svg, m[1]);
+    }
+  }
+})();
+
+// mouse
+(function mouse() {
+  const svg = document.getElementById('mouseSvg');
+  const ink = css('--ink'), line = css('--line'), muted = css('--muted');
+  el('path', { d: 'M180 30 C 120 30 100 80 100 130 L100 190 C100 230 140 250 180 250 C220 250 260 230 260 190 L260 130 C260 80 240 30 180 30 Z', fill: '#1e2517', stroke: line, 'stroke-width': 3 }, svg);
+  el('path', { d: 'M178 32 C 128 34 104 80 102 125 L178 125 Z', fill: CAT.fight.col, opacity: 0.9 }, svg);
+  el('path', { d: 'M182 32 C 232 34 256 80 258 125 L182 125 Z', fill: CAT.squad.col, opacity: 0.9 }, svg);
+  el('rect', { x: 172, y: 55, width: 16, height: 40, rx: 8, fill: CAT.fight.col, stroke: '#fff', 'stroke-width': 2 }, svg);
+  const call = (x1, y1, x2, y2, anchor, t1, t2) => {
+    el('line', { x1, y1, x2, y2, stroke: muted, 'stroke-width': 1.5 }, svg);
+    el('text', { x: x2 + (anchor === 'end' ? -6 : 6), y: y2 - 2, 'text-anchor': anchor, fill: ink, 'font-family': css('--body'), 'font-weight': 600, 'font-size': 14 }, svg, t1);
+    el('text', { x: x2 + (anchor === 'end' ? -6 : 6), y: y2 + 15, 'text-anchor': anchor, fill: muted, 'font-family': css('--body'), 'font-size': 12 }, svg, t2);
+  };
+  call(130, 85, 92, 85, 'end', 'Left', 'Fire');
+  call(232, 85, 270, 85, 'start', 'Right', 'Command squad');
+  call(180, 60, 180, 14, 'start', 'Wheel', 'Switch weapon');
+})();
+
+// controller
+(function pad() {
+  const svg = document.getElementById('padSvg');
+  const ink = css('--ink'), line = css('--line'), muted = css('--muted');
+  // body
+  el('path', { d: 'M300 150 C 330 118 570 118 600 150 C 660 160 700 210 720 300 C 740 390 690 430 650 410 C 610 390 590 340 560 330 L340 330 C 310 340 290 390 250 410 C 210 430 160 390 180 300 C 200 210 240 160 300 150 Z', fill: '#2a3320', stroke: line, 'stroke-width': 3 }, svg);
+  // shoulders
+  el('rect', { x: 265, y: 108, width: 100, height: 22, rx: 10, fill: CAT.fight.col }, svg); // LB
+  el('rect', { x: 535, y: 108, width: 100, height: 22, rx: 10, fill: CAT.fight.col }, svg); // RB
+  el('rect', { x: 285, y: 74, width: 60, height: 30, rx: 10, fill: CAT.squad.col }, svg); // LT
+  el('rect', { x: 555, y: 74, width: 60, height: 30, rx: 10, fill: CAT.fight.col }, svg); // RT
+  // sticks
+  const stick = (x, y, col) => { el('circle', { cx: x, cy: y, r: 30, fill: '#161b11', stroke: col, 'stroke-width': 4 }, svg); el('circle', { cx: x, cy: y, r: 18, fill: col }, svg); };
+  stick(290, 200, CAT.move.col);
+  stick(530, 290, CAT.fight.col);
+  // d-pad
+  el('rect', { x: 352, y: 255, width: 24, height: 72, rx: 4, fill: CAT.recruit.col }, svg);
+  el('rect', { x: 328, y: 279, width: 72, height: 24, rx: 4, fill: CAT.recruit.col }, svg);
+  // face buttons
+  const face = (x, y, t, col) => { el('circle', { cx: x, cy: y, r: 17, fill: col }, svg); el('text', { x, y: y + 6, 'text-anchor': 'middle', fill: '#fff', 'font-family': css('--mono'), 'font-weight': 600, 'font-size': 16 }, svg, t); };
+  face(610, 230, 'A', CAT.squad.col); face(645, 195, 'B', CAT.squad.col); face(575, 195, 'X', CAT.recruit.col); face(610, 160, 'Y', CAT.fight.col);
+  // view / menu
+  el('circle', { cx: 410, cy: 200, r: 10, fill: CAT.system.col, stroke: '#fff', 'stroke-width': 1.5 }, svg);
+  el('circle', { cx: 490, cy: 200, r: 10, fill: CAT.system.col, stroke: '#fff', 'stroke-width': 1.5 }, svg);
+  el('circle', { cx: 450, cy: 160, r: 16, fill: '#161b11', stroke: css('--green'), 'stroke-width': 3 }, svg);
+
+  const L = [ // [x1,y1, label, action, x2,y2]
+    [315, 89, 'LT', 'Send squad where you aim', 40, 40],
+    [280, 119, 'LB', 'Previous weapon', 40, 110],
+    [262, 200, 'Left stick', 'Move', 40, 200],
+    [330, 291, 'D-pad', 'Pick a recruit (title: menu)', 40, 300],
+    [410, 210, 'View', 'Help · title: Field Manual', 40, 400],
+  ];
+  const R = [
+    [585, 89, 'RT', 'Fire', 860, 40],
+    [620, 119, 'RB', 'Next weapon', 860, 110],
+    [627, 160, 'Y', 'Get in / out of vehicle', 860, 165],
+    [662, 195, 'B', 'Squad: guard', 860, 215],
+    [627, 230, 'A', 'Squad: follow · start game', 860, 265],
+    [558, 195, 'X', 'Buy selected recruit', 860, 315],
+    [560, 290, 'Right stick', 'Aim (auto-aim assist)', 860, 365],
+    [490, 210, 'Menu', 'Pause', 860, 420],
+  ];
+  // left callouts: text starts at x2 and extends right; elbow sits to the right of the text block
+  for (const c of L) {
+    const [x1, y1, label, action, x2, y2] = c;
+    el('polyline', { points: `${x1},${y1} ${x2 + 180},${y2} ${x2 + 172},${y2}`, fill: 'none', stroke: muted, 'stroke-width': 1.3 }, svg);
+    el('text', { x: x2, y: y2 - 3, fill: ink, 'font-family': css('--mono'), 'font-weight': 600, 'font-size': 14 }, svg, label);
+    el('text', { x: x2, y: y2 + 14, fill: muted, 'font-family': css('--body'), 'font-size': 13 }, svg, action);
+  }
+  for (const c of R) {
+    const [x1, y1, label, action, x2, y2] = c;
+    el('polyline', { points: `${x1},${y1} ${x2 - 180},${y2} ${x2 - 172},${y2}`, fill: 'none', stroke: muted, 'stroke-width': 1.3 }, svg);
+    el('text', { x: x2, y: y2 - 3, 'text-anchor': 'end', fill: ink, 'font-family': css('--mono'), 'font-weight': 600, 'font-size': 14 }, svg, label);
+    el('text', { x: x2, y: y2 + 14, 'text-anchor': 'end', fill: muted, 'font-family': css('--body'), 'font-size': 13 }, svg, action);
+  }
+})();
+
+// touch layout
+(function touch() {
+  const svg = document.getElementById('touchSvg');
+  const ink = css('--ink'), line = css('--line'), muted = css('--muted');
+  el('rect', { x: 10, y: 10, width: 400, height: 200, rx: 26, fill: '#161b11', stroke: line, 'stroke-width': 3 }, svg);
+  el('rect', { x: 30, y: 22, width: 360, height: 176, rx: 8, fill: '#3f6a28' }, svg);
+  el('rect', { x: 30, y: 22, width: 180, height: 176, fill: CAT.move.col, opacity: 0.35 }, svg);
+  el('rect', { x: 210, y: 22, width: 180, height: 176, fill: CAT.fight.col, opacity: 0.3 }, svg);
+  el('circle', { cx: 100, cy: 140, r: 30, fill: 'none', stroke: '#fff', 'stroke-width': 2, opacity: 0.8 }, svg);
+  el('circle', { cx: 112, cy: 132, r: 13, fill: '#b8ff7a' }, svg);
+  el('circle', { cx: 300, cy: 140, r: 30, fill: 'none', stroke: '#fff', 'stroke-width': 2, opacity: 0.8 }, svg);
+  el('circle', { cx: 318, cy: 128, r: 13, fill: '#ffbe5a' }, svg);
+  const lbl = (x, y, t, anchor = 'middle') => el('text', { x, y, 'text-anchor': anchor, fill: '#fff', 'font-family': css('--body'), 'font-weight': 600, 'font-size': 13 }, svg, t);
+  lbl(120, 60, 'Drag: move');
+  lbl(290, 60, 'Drag: aim & fire');
+  for (let i = 0; i < 3; i++) el('circle', { cx: 372, cy: 82 + i * 30, r: 11, fill: CAT.squad.col, stroke: '#fff', 'stroke-width': 1 }, svg);
+  for (let i = 0; i < 4; i++) el('rect', { x: 36, y: 30 + i * 18, width: 34, height: 14, rx: 3, fill: CAT.recruit.col }, svg);
+  for (let i = 0; i < 8; i++) el('rect', { x: 36 + i * 15, y: 180, width: 13, height: 12, rx: 2, fill: CAT.fight.col }, svg);
+})();
+// "Back to the game": return to the page we came from when there is one
+for (const a of document.querySelectorAll('a.back')) a.addEventListener('click', e => {
+  if (document.referrer && history.length > 1) { e.preventDefault(); history.back(); }
+});
+</script>
+</body>
+</html>
