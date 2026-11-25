@@ -189,9 +189,24 @@ const LEVELS = [
   { name: 'Kitchen Floor Offensive', theme: 'tile', w: 4800, h: 3000, brief: 'Four bunkers, plus Tan tanks and jeeps. Wipe them out.',
     bunkers: [[0.5, 0.15], [0.85, 0.3], [0.85, 0.75], [0.5, 0.85]], spawnRate: 6.5, cap: 5, raid: 0.33, waveT: 65,
     mix: [['t_rifle', 0.55], ['t_bazooka', 0.22], ['t_jeep', 0.12], ['t_tank', 0.11]], guards: 3, obstacles: 120 },
+  { name: 'Bedroom Floor Brawl', theme: 'bedroom', w: 5000, h: 3200, brief: 'Socks, crayons and storybooks everywhere. Clear out four bunkers.',
+    bunkers: [[0.5, 0.2], [0.82, 0.3], [0.82, 0.74], [0.5, 0.82]], spawnRate: 6.5, cap: 5, raid: 0.33, waveT: 65,
+    mix: [['t_rifle', 0.55], ['t_bazooka', 0.2], ['t_jeep', 0.15], ['t_tank', 0.1]], guards: 3, obstacles: 130 },
   { name: 'Garage Gauntlet', theme: 'concrete', w: 5200, h: 3400, brief: 'Tan choppers and mortar teams ahead. Destroy all five bunkers.',
     bunkers: [[0.45, 0.18], [0.7, 0.12], [0.9, 0.5], [0.7, 0.88], [0.45, 0.8]], spawnRate: 6.5, cap: 5, raid: 0.38, waveT: 60,
     mix: [['t_rifle', 0.45], ['t_bazooka', 0.2], ['t_mortar', 0.12], ['t_jeep', 0.08], ['t_tank', 0.08], ['t_heli', 0.07]], guards: 3, obstacles: 135 },
+  { name: 'Desert Dunes', theme: 'desert', weather: 'dust', w: 6000, h: 3600, brief: 'Wide-open dunes favor vehicles. Tan jeeps and tanks patrol the sand.',
+    bunkers: [[0.45, 0.2], [0.62, 0.75], [0.78, 0.25], [0.9, 0.55], [0.4, 0.8]], spawnRate: 6.5, cap: 5, raid: 0.38, waveT: 60,
+    mix: [['t_rifle', 0.45], ['t_bazooka', 0.18], ['t_jeep', 0.17], ['t_tank', 0.12], ['t_heli', 0.08]], guards: 3, obstacles: 110 },
+  { name: 'Mountain Pass', theme: 'mountain', w: 6000, h: 4000, ridges: 10, brief: 'Rocky ridges funnel the fight. Mortars shoot over them and choppers fly over.',
+    bunkers: [[0.42, 0.25], [0.55, 0.78], [0.7, 0.4], [0.88, 0.2], [0.9, 0.72]], spawnRate: 6.5, cap: 5, raid: 0.38, waveT: 60,
+    mix: [['t_rifle', 0.42], ['t_bazooka', 0.2], ['t_mortar', 0.16], ['t_tank', 0.08], ['t_heli', 0.14]], guards: 3, obstacles: 120 },
+  { name: 'Tundra Push', theme: 'tundra', weather: 'snow', w: 6400, h: 4000, brief: 'Frozen mud and scrub as far as you can see. Six bunkers dug in across the tundra.',
+    bunkers: [[0.4, 0.18], [0.45, 0.82], [0.62, 0.5], [0.78, 0.15], [0.8, 0.85], [0.92, 0.5]], spawnRate: 6.5, cap: 5, raid: 0.4, waveT: 58,
+    mix: [['t_rifle', 0.44], ['t_bazooka', 0.18], ['t_mortar', 0.12], ['t_jeep', 0.1], ['t_tank', 0.08], ['t_heli', 0.08]], guards: 3, obstacles: 140 },
+  { name: 'Arctic Outpost', theme: 'arctic', weather: 'blizzard', w: 6800, h: 4200, brief: 'A blizzard over the ice. Blast through ice blocks and take all six bunkers.',
+    bunkers: [[0.38, 0.22], [0.42, 0.8], [0.6, 0.45], [0.75, 0.15], [0.8, 0.8], [0.93, 0.45]], spawnRate: 6.2, cap: 5, raid: 0.42, waveT: 56,
+    mix: [['t_rifle', 0.4], ['t_bazooka', 0.2], ['t_mortar', 0.12], ['t_jeep', 0.08], ['t_tank', 0.1], ['t_heli', 0.1]], guards: 4, obstacles: 140 },
   { name: 'Living Room Rumble', theme: 'carpet', w: 8000, h: 5000, brief: 'The biggest battlefield yet. Every bunker you destroy becomes a green outpost.',
     bunkers: [[0.3, 0.2], [0.35, 0.78], [0.55, 0.45], [0.62, 0.12], [0.7, 0.86], [0.85, 0.35], [0.9, 0.72]], spawnRate: 7, cap: 4, raid: 0.35, waveT: 60,
     mix: [['t_rifle', 0.45], ['t_bazooka', 0.18], ['t_mortar', 0.1], ['t_jeep', 0.1], ['t_tank', 0.1], ['t_heli', 0.07]], guards: 3, obstacles: 230 },
@@ -374,8 +389,8 @@ let G = null;
 let showHelp = false;
 // starting resources; jumping straight to a later mission brings a bigger squad
 const START_CARRY = (idx = 0) => ({
-  plastic: DIFF().plastic + idx * 150,
-  squad: ['rifle', 'rifle', 'jeep', ...(idx >= 2 ? ['bazooka', 'medic'] : []), ...(idx >= 3 ? ['gtank', 'sniper'] : [])],
+  plastic: DIFF().plastic + idx * 120,
+  squad: ['rifle', 'rifle', 'jeep', ...(idx >= 2 ? ['bazooka', 'medic'] : []), ...(idx >= 4 ? ['gtank', 'sniper'] : []), ...(idx >= 7 ? ['mortar', 'flamer'] : [])],
 });
 function setDifficulty(i) { diffIdx = (i + 3) % 3; store.set('difficulty', diffIdx); sfx('order'); }
 function setMission(i) { missionSel = (i + LEVELS.length) % LEVELS.length; sfx('order'); }
@@ -455,6 +470,11 @@ function genObstacles(rng, L) {
     concrete: ['tire', 'crate', 'block', 'sandbag', 'crate', 'tire', 'rock'],
     sand: ['rock', 'crate', 'sandbag', 'block', 'crate', 'sandbag'],
     carpet: ['book', 'block', 'crate', 'block', 'crate', 'book', 'tire'],
+    bedroom: ['sock', 'crayon', 'book', 'block', 'crate', 'sock', 'block'],
+    desert: ['cactus', 'mesa', 'crate', 'rock', 'cactus', 'sandbag'],
+    mountain: ['pine', 'rock', 'pine', 'crate', 'rock', 'pine'],
+    tundra: ['shrub', 'rock', 'crate', 'shrub', 'sandbag', 'rock'],
+    arctic: ['ice', 'drift', 'crate', 'ice', 'drift', 'rock'],
   }[L.theme];
   const blockCols = ['#d63c32', '#2f6fd6', '#f2c230', '#e8772a', '#8a3fc2', '#e9e9e9'];
   const hq = { x: 330, y: WORLD_H / 2 };
@@ -483,9 +503,32 @@ function genObstacles(rng, L) {
     else if (kind === 'pencil') { w = 240; h = 22; if (rng() < 0.5) [w, h] = [h, w]; }
     else if (kind === 'tire') { w = h = 56 + Math.floor(rng() * 2) * 16; }
     else if (kind === 'book') { w = 150 + rng() * 90; h = 105 + rng() * 50; if (rng() < 0.5) [w, h] = [h, w]; }
+    else if (kind === 'sock') { w = 130 + rng() * 40; h = 46; if (rng() < 0.5) [w, h] = [h, w]; }
+    else if (kind === 'crayon') { w = 200; h = 24; if (rng() < 0.5) [w, h] = [h, w]; }
+    else if (kind === 'cactus') { w = h = 40 + Math.floor(rng() * 2) * 12; hp = 90; }
+    else if (kind === 'mesa') { w = 130 + rng() * 110; h = 100 + rng() * 70; }
+    else if (kind === 'pine') { w = h = 58 + Math.floor(rng() * 3) * 12; }
+    else if (kind === 'shrub') { w = h = 42 + Math.floor(rng() * 2) * 12; hp = 80; }
+    else if (kind === 'ice') { w = 60 + rng() * 60; h = 50 + rng() * 50; hp = 250; }
+    else if (kind === 'drift') { w = 130 + rng() * 90; h = 60 + rng() * 40; if (rng() < 0.4) [w, h] = [h, w]; }
+    const palette = kind === 'book' ? ['#3b5b8c', '#8c3b3b', '#3b7a4a', '#c99a2e', '#4a3b6b']
+      : kind === 'sock' ? ['#d9534f', '#4a7fd6', '#f0c419', '#6cc070', '#9b59b6', '#e8e8e8']
+      : kind === 'crayon' ? ['#e03c31', '#2f6fd6', '#2e9e4a', '#f2c230', '#8a3fc2', '#ff7f27'] : blockCols;
     const o = { kind, x: 80 + rng() * (WORLD_W - 160 - w), y: 80 + rng() * (WORLD_H - 160 - h), w, h, hp, maxHp: hp,
-      color: kind === 'book' ? ['#3b5b8c', '#8c3b3b', '#3b7a4a', '#c99a2e', '#4a3b6b'][Math.floor(rng() * 5)] : blockCols[Math.floor(rng() * blockCols.length)], seed: rng() };
+      color: palette[Math.floor(rng() * palette.length)], seed: rng() };
     if (add(o)) placed++;
+  }
+  // mountain ridges: short boulder chains that funnel movement (always short enough to walk around)
+  for (let r = 0; r < (L.ridges || 0); r++) {
+    let x = WORLD_W * (0.18 + rng() * 0.72), y = WORLD_H * (0.1 + rng() * 0.8);
+    const a = Math.PI / 2 + (rng() - 0.5) * 1.2, n = 4 + Math.floor(rng() * 4);
+    for (let i = 0; i < n; i++) {
+      const sz = 90 + rng() * 50;
+      const o = { kind: 'rock', x: x - sz / 2, y: y - sz / 2, w: sz, h: sz * (0.75 + rng() * 0.3), hp: null, seed: rng() };
+      const blocked = protect.some(p => Math.hypot(p.x - x, p.y - y) < p.r + sz);
+      if (!blocked && o.x > 40 && o.y > 40 && o.x + o.w < WORLD_W - 40 && o.y + o.h < WORLD_H - 40) G.obs.push(o);
+      x += Math.cos(a) * sz * 0.85; y += Math.sin(a) * sz * 0.85;
+    }
   }
   // sandbag walls guarding each bunker, facing the player's HQ
   for (const b of bpos) {
@@ -550,6 +593,67 @@ function renderGround(theme, rng) {
       for (let j = 0; j < 5; j++) { x += rng() * 50 - 25; y += rng() * 50 - 25; g.lineTo(x, y); } g.stroke();
     }
     for (let i = 0; i < 5000 * k; i++) { g.fillStyle = rng() < 0.5 ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.2)'; g.fillRect(rng() * WORLD_W, rng() * WORLD_H, 2, 2); }
+  } else if (theme === 'bedroom') {
+    // honey-colored floorboards
+    const bh = 120;
+    for (let y = 0, row = 0; y < WORLD_H; y += bh, row++) {
+      let x = -((row * 731) % 1600);
+      while (x < WORLD_W) {
+        const len = 1100 + rng() * 900;
+        g.fillStyle = `hsl(${30 + rng() * 8},${45 + rng() * 10}%,${52 + rng() * 10}%)`; g.fillRect(x, y, len, bh);
+        g.strokeStyle = 'rgba(90,55,25,0.18)'; g.lineWidth = 2;
+        for (let i = 0; i < 4; i++) { const gy = y + 15 + rng() * (bh - 30); g.beginPath(); g.moveTo(x, gy); g.bezierCurveTo(x + len / 3, gy + rng() * 16 - 8, x + len * 2 / 3, gy + rng() * 16 - 8, x + len, gy); g.stroke(); }
+        g.fillStyle = 'rgba(60,35,15,0.45)'; g.fillRect(x, y, 3, bh);
+        x += len;
+      }
+      g.fillStyle = 'rgba(60,35,15,0.5)'; g.fillRect(0, y, WORLD_W, 3);
+    }
+    // a round braided rug
+    const cx = WORLD_W * 0.42, cy = WORLD_H * 0.5;
+    ['#c0504d', '#f2c230', '#4a7fd6', '#6cc070', '#c0504d', '#e8e0c8', '#4a7fd6'].forEach((col, i) => {
+      g.fillStyle = col; g.beginPath(); g.ellipse(cx, cy, 1100 - i * 140, 800 - i * 100, 0, 0, TAU); g.fill();
+    });
+  } else if (theme === 'desert') {
+    g.fillStyle = '#d9954f'; g.fillRect(0, 0, WORLD_W, WORLD_H);
+    for (let i = 0; i < 260 * k; i++) { // dune bands
+      const x = rng() * WORLD_W, y = rng() * WORLD_H, l = 300 + rng() * 600;
+      g.strokeStyle = rng() < 0.5 ? 'rgba(255,215,160,0.35)' : 'rgba(150,80,35,0.3)'; g.lineWidth = 10 + rng() * 30;
+      g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + l / 2, y - 60 - rng() * 60, x + l, y + rng() * 40 - 20); g.stroke();
+    }
+    blobs(30, () => 'rgba(160,90,45,0.3)', [60, 160], [30, 70]);
+    g.strokeStyle = 'rgba(120,65,30,0.35)'; g.lineWidth = 2; // cracked earth
+    for (let i = 0; i < 18 * k; i++) {
+      const x0 = rng() * WORLD_W, y0 = rng() * WORLD_H;
+      for (let j = 0; j < 14; j++) { let x = x0 + rng() * 200 - 100, y = y0 + rng() * 200 - 100; g.beginPath(); g.moveTo(x, y); for (let q = 0; q < 3; q++) { x += rng() * 50 - 25; y += rng() * 50 - 25; g.lineTo(x, y); } g.stroke(); }
+    }
+    for (let i = 0; i < 5000 * k; i++) { g.fillStyle = rng() < 0.5 ? 'rgba(255,230,190,0.4)' : 'rgba(120,60,25,0.35)'; g.fillRect(rng() * WORLD_W, rng() * WORLD_H, 2, 2); }
+  } else if (theme === 'mountain') {
+    g.fillStyle = '#6f7a58'; g.fillRect(0, 0, WORLD_W, WORLD_H);
+    blobs(220, () => rng() < 0.5 ? `rgba(${110 + rng() * 40},${115 + rng() * 30},${100 + rng() * 30},0.35)` : `rgba(${60 + rng() * 30},${85 + rng() * 30},${45 + rng() * 20},0.35)`, [60, 180], [40, 120]);
+    for (let p = 0; p < 3 * k; p++) { // contour lines around hills
+      const px = rng() * WORLD_W, py = rng() * WORLD_H, base = 110 + rng() * 90;
+      for (let ring = 1; ring <= 4; ring++) {
+        g.strokeStyle = `rgba(40,45,30,${0.2 - ring * 0.03})`; g.lineWidth = 3; g.beginPath();
+        for (let a = 0; a <= TAU + 0.01; a += 0.2) { const r = base * ring * (1 + 0.18 * Math.sin(a * 3 + p)); g.lineTo(px + Math.cos(a) * r, py + Math.sin(a) * r * 0.8); }
+        g.stroke();
+      }
+    }
+    for (let i = 0; i < 4000 * k; i++) { g.fillStyle = rng() < 0.5 ? 'rgba(200,200,190,0.35)' : 'rgba(40,45,30,0.35)'; g.fillRect(rng() * WORLD_W, rng() * WORLD_H, 3, 3); } // scree
+  } else if (theme === 'tundra') {
+    g.fillStyle = '#8e8b66'; g.fillRect(0, 0, WORLD_W, WORLD_H);
+    blobs(220, () => `rgba(${100 + rng() * 40},${95 + rng() * 35},${60 + rng() * 30},0.35)`, [60, 160], [40, 100]);
+    blobs(110, () => `rgba(240,244,246,${0.55 + rng() * 0.3})`, [40, 160], [30, 90]); // snow patches
+    for (let i = 0; i < 3000 * k; i++) { g.fillStyle = ['rgba(200,140,40,0.55)', 'rgba(150,170,80,0.5)', 'rgba(60,55,40,0.4)'][Math.floor(rng() * 3)]; g.fillRect(rng() * WORLD_W, rng() * WORLD_H, 3, 3); } // lichen
+  } else if (theme === 'arctic') {
+    g.fillStyle = '#e9f0f5'; g.fillRect(0, 0, WORLD_W, WORLD_H);
+    blobs(200, () => `rgba(${170 + rng() * 40},${195 + rng() * 30},${215 + rng() * 25},0.3)`, [60, 200], [30, 90]);
+    // a frozen lake with cracks
+    const lx = WORLD_W * 0.55, ly = WORLD_H * 0.5;
+    g.fillStyle = 'rgba(140,195,230,0.55)'; g.beginPath(); g.ellipse(lx, ly, WORLD_W * 0.16, WORLD_H * 0.2, 0.3, 0, TAU); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 3;
+    for (let i = 0; i < 40; i++) { let x = lx + (rng() - 0.5) * WORLD_W * 0.25, y = ly + (rng() - 0.5) * WORLD_H * 0.3; g.beginPath(); g.moveTo(x, y); for (let q = 0; q < 6; q++) { x += rng() * 80 - 40; y += rng() * 80 - 40; g.lineTo(x, y); } g.stroke(); }
+    g.strokeStyle = 'rgba(160,185,205,0.45)'; g.lineWidth = 4; // wind-carved ridges
+    for (let i = 0; i < 300 * k; i++) { const x = rng() * WORLD_W, y = rng() * WORLD_H, l = 80 + rng() * 140; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + l / 2, y - 10, x + l, y + 4); g.stroke(); }
   } else if (theme === 'carpet') {
     g.fillStyle = '#7a3a2e'; g.fillRect(0, 0, WORLD_W, WORLD_H);
     blobs(160, () => `rgba(${90 + rng() * 50},${30 + rng() * 25},${25 + rng() * 20},0.3)`, [60, 160], [40, 90]);
@@ -779,7 +883,7 @@ function damageObs(o, dmg) {
   if (o.hp <= 0) {
     o.dead = true;
     const cx = o.x + o.w / 2, cy = o.y + o.h / 2;
-    const col = o.kind === 'crate' ? '#a8743c' : '#9a8f62';
+    const col = { crate: '#a8743c', ice: '#cfeaf7', cactus: '#3e7d3a', shrub: '#5d5a2e' }[o.kind] || '#9a8f62';
     for (let i = 0; i < 14; i++) addPart({ x: cx + rand(-o.w / 2, o.w / 2), y: cy + rand(-o.h / 2, o.h / 2), vx: rand(-150, 150), vy: rand(-150, 150), life: rand(0.4, 0.8), size: rand(3, 7), col, type: 'debris' });
     if (o.kind === 'crate') {
       const r = Math.random();
@@ -1002,7 +1106,7 @@ function update(dt) {
     const live = G.bunkers.filter(b => !b.dead).sort(() => Math.random() - 0.5).slice(0, 3);
     if (live.length) {
       banner('', '⚠ Tan attack wave incoming!', 2.5); sfx('alarm');
-      for (const b of live) for (let i = 0; i < 2 + Math.floor(G.idx / 2); i++) {
+      for (const b of live) for (let i = 0; i < 2 + Math.min(3, Math.floor(G.idx / 3)); i++) {
         const a = rand(0, TAU); spawnTan(b, pickMix(G.L.mix, Math.random), b.x + Math.cos(a) * 60, b.y + Math.sin(a) * 60, true);
       }
     }
@@ -1589,6 +1693,60 @@ function drawObstacle(o) {
     for (let i = 0; i < 12; i++) { const a = i / 12 * TAU; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r * 0.7, cy + Math.sin(a) * r * 0.7); ctx.lineTo(cx + Math.cos(a) * r * 0.95, cy + Math.sin(a) * r * 0.95); ctx.stroke(); }
     ctx.fillStyle = '#8f908a'; circle(cx, cy, r * 0.45);
     ctx.fillStyle = 'rgba(0,0,0,0.3)'; circle(cx + 2, cy + 2, r * 0.45);
+  } else if (o.kind === 'sock') {
+    const vert = o.h > o.w;
+    ctx.translate(o.x + o.w / 2, o.y + o.h / 2); if (vert) ctx.rotate(Math.PI / 2);
+    const L = vert ? o.h : o.w, H = vert ? o.w : o.h;
+    ctx.fillStyle = fl ? '#fff' : o.color; rrect(-L / 2, -H / 2, L * 0.8, H, H / 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(L / 2 - H * 0.55, -H * 0.05, H * 0.6, H * 0.62, 0, 0, TAU); ctx.fill(); // heel & toe
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    for (let i = 0; i < 3; i++) ctx.fillRect(-L / 2 + 14 + i * 18, -H / 2, 8, H);
+    ctx.fillStyle = shade(o.color, -0.25); ctx.fillRect(-L / 2, -H / 2, 10, H); // cuff
+  } else if (o.kind === 'crayon') {
+    const vert = o.h > o.w;
+    ctx.translate(o.x + o.w / 2, o.y + o.h / 2); if (vert) ctx.rotate(Math.PI / 2);
+    const L = vert ? o.h : o.w, H = vert ? o.w : o.h;
+    ctx.fillStyle = o.color; rrect(-L / 2, -H / 2, L - 26, H, 5); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(-L / 2 + 20, -H / 2, 6, H); ctx.fillRect(L / 2 - 60, -H / 2, 6, H); // wrapper bands
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(-L / 2 + 30, -H / 2 + 3, L - 100, 4);
+    ctx.fillStyle = o.color; ctx.beginPath(); ctx.moveTo(L / 2 - 26, -H / 2); ctx.lineTo(L / 2, 0); ctx.lineTo(L / 2 - 26, H / 2); ctx.fill();
+  } else if (o.kind === 'cactus') {
+    const cx = o.x + o.w / 2, cy = o.y + o.h / 2, r = o.w / 2;
+    ctx.fillStyle = fl ? '#fff' : '#3e7d3a';
+    circle(cx, cy, r * 0.62); rrect(cx - r, cy - r * 0.2, r * 0.6, r * 0.4, 6); ctx.fill(); rrect(cx + r * 0.4, cy - r * 0.4, r * 0.6, r * 0.4, 6); ctx.fill();
+    ctx.fillStyle = '#5aa052'; circle(cx - 2, cy - 2, r * 0.42);
+    ctx.fillStyle = '#f6e6a8'; for (let i = 0; i < 8; i++) { const a = i / 8 * TAU; ctx.fillRect(cx + Math.cos(a) * r * 0.62 - 1, cy + Math.sin(a) * r * 0.62 - 1, 2, 2); }
+  } else if (o.kind === 'mesa') {
+    ctx.fillStyle = '#9c4a2a'; rrect(o.x, o.y + 10, o.w, o.h, 18); ctx.fill();
+    ctx.fillStyle = '#c0643a'; rrect(o.x, o.y, o.w, o.h, 18); ctx.fill();
+    ctx.fillStyle = '#d8835a'; rrect(o.x + o.w * 0.15, o.y + o.h * 0.15, o.w * 0.7, o.h * 0.6, 14); ctx.fill();
+    ctx.fillStyle = '#e8a37a'; rrect(o.x + o.w * 0.3, o.y + o.h * 0.25, o.w * 0.4, o.h * 0.3, 10); ctx.fill();
+  } else if (o.kind === 'pine') {
+    const cx = o.x + o.w / 2, cy = o.y + o.h / 2, r = o.w / 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; circle(cx + 8, cy + 10, r);
+    [['#1f4a26', 1], ['#2b6233', 0.72], ['#3a7a40', 0.45]].forEach(([col, f]) => {
+      ctx.fillStyle = col; ctx.beginPath();
+      for (let i = 0; i < 16; i++) { const a = i / 16 * TAU, rr = r * f * (i % 2 ? 0.78 : 1); ctx.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
+      ctx.closePath(); ctx.fill();
+    });
+    ctx.fillStyle = '#5a3a1e'; circle(cx, cy, 3);
+  } else if (o.kind === 'shrub') {
+    const cx = o.x + o.w / 2, cy = o.y + o.h / 2, r = o.w / 2;
+    ctx.fillStyle = fl ? '#fff' : '#5d5a2e';
+    for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + o.seed * 6; circle(cx + Math.cos(a) * r * 0.45, cy + Math.sin(a) * r * 0.45, r * 0.5); }
+    ctx.fillStyle = '#7a7640'; circle(cx, cy, r * 0.5);
+    ctx.fillStyle = 'rgba(255,255,255,0.75)'; circle(cx - r * 0.2, cy - r * 0.25, r * 0.18); // frost
+  } else if (o.kind === 'ice') {
+    ctx.fillStyle = fl ? '#fff' : 'rgba(150,210,240,0.85)'; rrect(o.x, o.y, o.w, o.h, 6); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.moveTo(o.x + 6, o.y + 6); ctx.lineTo(o.x + o.w * 0.5, o.y + 6); ctx.lineTo(o.x + 6, o.y + o.h * 0.5); ctx.fill();
+    if (o.hp < o.maxHp * 0.6) { ctx.strokeStyle = 'rgba(60,110,140,0.7)'; ctx.beginPath(); ctx.moveTo(o.x + o.w * 0.2, o.y + o.h * 0.3); ctx.lineTo(o.x + o.w * 0.55, o.y + o.h * 0.55); ctx.lineTo(o.x + o.w * 0.8, o.y + o.h * 0.45); ctx.stroke(); }
+  } else if (o.kind === 'drift') {
+    const grd = ctx.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
+    grd.addColorStop(0, '#ffffff'); grd.addColorStop(1, '#c9d8e6');
+    ctx.fillStyle = grd; rrect(o.x, o.y, o.w, o.h, Math.min(o.w, o.h) * 0.48); ctx.fill();
+    ctx.strokeStyle = 'rgba(150,175,200,0.6)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(o.x + o.w * 0.15, o.y + o.h * 0.55); ctx.quadraticCurveTo(o.x + o.w * 0.5, o.y + o.h * 0.3, o.x + o.w * 0.85, o.y + o.h * 0.55); ctx.stroke();
   } else if (o.kind === 'book') {
     const vert = o.h > o.w;
     ctx.fillStyle = shade(o.color, -0.35); rrect(o.x, o.y + 8, o.w, o.h, 4); ctx.fill(); // cover edge
@@ -1790,6 +1948,32 @@ function drawWorld() {
   }
 }
 
+// ---------- weather ----------
+function drawWeather() {
+  const w = G.L.weather;
+  if (!w) return;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const t = G.time, n = w === 'blizzard' ? 260 : w === 'snow' ? 120 : 90;
+  if (w === 'dust') {
+    ctx.fillStyle = 'rgba(220,160,90,0.08)'; ctx.fillRect(0, 0, VW, VH);
+    ctx.strokeStyle = 'rgba(240,200,140,0.35)'; ctx.lineWidth = 1.5;
+    for (let i = 0; i < n; i++) {
+      const sp = 180 + (i % 7) * 40;
+      const x = ((i * 271.3 + t * sp) % (VW + 200)) - 100, y = (i * 97.7 + Math.sin(t + i) * 20) % VH;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 30 - (i % 5) * 8, y + 2); ctx.stroke();
+    }
+    return;
+  }
+  if (w === 'blizzard') { ctx.fillStyle = 'rgba(235,242,250,0.12)'; ctx.fillRect(0, 0, VW, VH); }
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  for (let i = 0; i < n; i++) {
+    const fall = 40 + (i % 6) * 18, drift = (w === 'blizzard' ? 120 : 25) + (i % 4) * 10;
+    const x = ((i * 137.5 + t * drift + Math.sin(t * 1.3 + i) * 12) % (VW + 40)) - 20;
+    const y = ((i * 91.3 + t * fall) % (VH + 20)) - 10;
+    circle(x, y, 1 + (i % 3) * 0.8);
+  }
+}
+
 // ---------- HUD ----------
 function hudScale() { return touchMode ? clamp(Math.min(VW / 1000, VH / 560), 0.5, 1) : clamp(Math.min(VW / 1300, VH / 760), 0.7, 1); }
 // all HUD layout happens in "logical" pixels (screen px / HS)
@@ -1900,7 +2084,7 @@ function drawHUD() {
   // minimap
   panel(mm.x - 4, mm.y - 4, mm.w + 8, mm.h + 8);
   const sx = mm.w / WORLD_W, sy = mm.h / WORLD_H;
-  ctx.fillStyle = { grass: '#3f6a28', tile: '#9c917a', concrete: '#6e6f6a', sand: '#b39a66', carpet: '#6b3228' }[G.L.theme];
+  ctx.fillStyle = { grass: '#3f6a28', tile: '#9c917a', concrete: '#6e6f6a', sand: '#b39a66', carpet: '#6b3228', bedroom: '#a8743f', desert: '#c27e3e', mountain: '#5c6648', tundra: '#7d7a5a', arctic: '#c9d6e0' }[G.L.theme];
   ctx.fillRect(mm.x, mm.y, mm.w, mm.h);
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   for (const o of G.obs) ctx.fillRect(mm.x + o.x * sx, mm.y + o.y * sy, Math.max(1.5, o.w * sx), Math.max(1.5, o.h * sy));
@@ -1930,6 +2114,11 @@ function drawHUD() {
   if (G.banner) {
     const b = G.banner, a = Math.min(1, b.t * 2, (b.max - b.t) * 4 + 0.2);
     ctx.globalAlpha = a;
+    // dark backing plate keeps the banner readable on bright maps (snow, sand)
+    ctx.font = 'bold 38px "Trebuchet MS",sans-serif'; const tw = b.title ? ctx.measureText(b.title).width : 0;
+    ctx.font = 'bold 18px "Trebuchet MS",sans-serif'; const sw = b.sub ? ctx.measureText(b.sub).width : 0;
+    const bw = Math.max(tw, sw) + 48, top = LH * 0.28 - (b.title ? 44 : 24), bh = (b.title ? 44 : 0) + (b.sub ? 34 : 0) + 6;
+    ctx.fillStyle = 'rgba(16,22,12,0.62)'; rrect(LW / 2 - bw / 2, top, bw, bh, 12); ctx.fill();
     if (b.title) txt(b.title, LW / 2, LH * 0.28, 38, '#f2ffd9', 'center');
     if (b.sub) txt(b.sub, LW / 2, LH * 0.28 + (b.title ? 34 : 0), 18, '#ffe9a0', 'center');
     ctx.globalAlpha = 1;
@@ -2109,7 +2298,7 @@ function frame(now) {
   if (state === 'title') drawTitle(dt);
   else {
     if (state === 'play') update(dt);
-    drawWorld(); drawHUD();
+    drawWorld(); drawWeather(); drawHUD();
     const mins = Math.floor(G.time / 60), secs = String(Math.floor(G.time % 60)).padStart(2, '0');
     if (state === 'paused') drawOverlay('PAUSED', [touchMode ? 'Tap to resume' : padMode ? 'Press Menu or A to resume' : 'Press P or Esc to resume'], null, '#d6ffb0');
     else if (state === 'levelwin') drawOverlay('MISSION COMPLETE', [`Tan troops destroyed: ${G.kills}   ·   Squad lost: ${G.lost}   ·   Time ${mins}:${secs}`, `Surviving squad members and plastic carry over (+100 bonus plastic).`, `Next: ${LEVELS[G.idx + 1].name}`], 'Click to continue', '#b8ff7a');
