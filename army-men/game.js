@@ -191,6 +191,66 @@ let diffIdx = clamp(store.get('difficulty', 1) | 0, 0, 2);
 let missionSel = 0;
 const DIFF = () => DIFFS[diffIdx];
 
+// ---------- medals (achievements) ----------
+const MEDALS = [
+  { id: 'first', name: 'First Blood', desc: 'Defeat your first tan soldier' },
+  { id: 'bunkers', name: 'Bunker Buster', desc: 'Destroy 10 bunkers', stat: 'bunkers', goal: 10 },
+  { id: 'builds', name: 'Corps of Engineers', desc: 'Build 10 structures', stat: 'builds', goal: 10 },
+  { id: 'bridge', name: 'Bridge Builder', desc: 'Build a bridge across a river' },
+  { id: 'ace', name: 'Ace Pilot', desc: 'Get 5 kills flying a fighter', stat: 'planeKills', goal: 5 },
+  { id: 'tanker', name: 'Tank Commander', desc: 'Get 25 kills driving a tank', stat: 'tankKills', goal: 25 },
+  { id: 'roadkill', name: 'Road Rage', desc: 'Run over 10 tan soldiers', stat: 'runovers', goal: 10 },
+  { id: 'mines', name: 'Watch Your Step', desc: 'Destroy 10 enemies with mines', stat: 'mineKills', goal: 10 },
+  { id: 'veteran', name: 'Veteran', desc: 'Defeat 500 tan troops in total', stat: 'kills', goal: 500 },
+  { id: 'untouchable', name: 'Untouchable', desc: 'Win a mission without Sarge going down' },
+  { id: 'noloss', name: 'No Man Left Behind', desc: 'Win a mission without losing a squad member' },
+  { id: 'hard', name: 'Hard as Plastic', desc: 'Win a mission on Hard' },
+  { id: 'giant', name: 'Giant Killer', desc: 'Destroy a mini-boss' },
+  { id: 'overlord', name: 'Overlord Slayer', desc: 'Defeat the Tan Overlord' },
+  { id: 'campaign', name: 'Campaign Veteran', desc: 'Complete all 10 missions' },
+  { id: 'armory', name: 'Fully Loaded', desc: 'Max out any upgrade' },
+  { id: 'coop', name: 'Brothers in Arms', desc: 'Win a mission in co-op' },
+  { id: 'duel', name: 'Duelist', desc: 'Win a Versus match' },
+];
+let medals = store.get('medals', {}), stats = store.get('stats', {});
+const toasts = [];
+function award(id) {
+  if (medals[id]) return;
+  medals[id] = Date.now(); store.set('medals', medals);
+  const m = MEDALS.find(x => x.id === id);
+  if (m) { toasts.push({ title: 'Medal earned', text: m.name, sub: m.desc, t: 4.5 }); sfx('win'); }
+}
+function bump(stat, n = 1) {
+  stats[stat] = (stats[stat] || 0) + n; store.set('stats', stats);
+  for (const m of MEDALS) if (m.stat === stat && stats[stat] >= m.goal) award(m.id);
+}
+
+// ---------- the Armory: permanent upgrades bought with stars ----------
+const UPGRADES = [
+  { id: 'armor', name: 'Tougher Plastic', desc: '+15% health for Sarge and your squad' },
+  { id: 'damage', name: 'Veteran Training', desc: '+10% damage for Sarge and your squad' },
+  { id: 'ammo', name: 'Bigger Pockets', desc: '+30% starting ammo for Sarge' },
+  { id: 'income', name: 'Supply Lines', desc: '+15% plastic per kill, +60 at mission start' },
+  { id: 'build', name: 'Rapid Engineers', desc: 'Engineers build 30% faster' },
+  { id: 'medic', name: 'Field Medicine', desc: 'Sarge and medics heal 50% faster' },
+];
+let upgrades = store.get('upgrades', {}), stars = store.get('stars', 0) | 0;
+const upCost = lvl => lvl + 1;             // level 1 costs 1 star, level 2 costs 2, level 3 costs 3
+// upgrades apply in the campaign and co-op, never in Versus
+const upg = id => (G && G.mode === 'versus') ? 0 : (upgrades[id] || 0);
+function buyUpgrade(id) {
+  const lvl = upgrades[id] || 0;
+  if (lvl >= 3) { sfx('deny'); return; }
+  if (stars < upCost(lvl)) { sfx('deny'); toasts.push({ title: 'Not enough stars', text: 'Win missions to earn more', t: 2 }); return; }
+  stars -= upCost(lvl); upgrades[id] = lvl + 1;
+  store.set('stars', stars); store.set('upgrades', upgrades);
+  sfx('recruit');
+  if (upgrades[id] >= 3) award('armory');
+}
+let campaign = store.get('campaign', null);   // { mission, carry, diff } after each win
+let gameMode = 'campaign';                     // 'campaign' | 'coop' | 'versus'
+let menuCursor = 0;
+
 // bunker / boss positions are fractions of the map size; HQ is always on the left edge
 const LEVELS = [
   { name: 'Operation Backyard', theme: 'grass', w: 4200, h: 2800, brief: 'Destroy all three Tan bunkers. Your jeep is waiting: walk up and press E to drive.',
@@ -243,7 +303,7 @@ cvs.addEventListener('mousedown', e => {
   touchMode = false; padMode = false;
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (e.button === 0) {
-    if (state === 'title') { hudClick(mouse.x, mouse.y); return; }
+    if (MENU_STATES.includes(state)) { hudClick(mouse.x, mouse.y); return; }
     if (state !== 'play') { onClickOverlay(); return; }
     if (hudClick(mouse.x, mouse.y)) return;
     if (G.buildMode) { placeBuild(mouse.wx, mouse.wy); return; }
@@ -274,7 +334,7 @@ cvs.addEventListener('touchstart', e => {
   touchMode = true;
   for (const t of e.changedTouches) {
     const x = t.clientX, y = t.clientY;
-    if (state === 'title') { hudClick(x, y); return; }
+    if (MENU_STATES.includes(state)) { hudClick(x, y); return; }
     if (state !== 'play') { onClickOverlay(); return; }
     padMode = false;
     if (hudClick(x, y)) continue;
@@ -329,7 +389,19 @@ function pollPad() {
   if (now.some(Boolean)) initAudio();
   padPrev = now;
   if (!padMode) return;
+  if (state === 'armory' || state === 'levelwin') {
+    const n = UPGRADES.length + 1;
+    if (pressed(12)) menuCursor = (menuCursor + n - 1) % n;
+    if (pressed(13)) menuCursor = (menuCursor + 1) % n;
+    if (pressed(0)) { if (menuCursor < UPGRADES.length) buyUpgrade(UPGRADES[menuCursor].id); else leaveArmory(); }
+    if (pressed(9) || (pressed(1) && state === 'armory')) leaveArmory();
+    return;
+  }
+  if (state === 'medals') { if (pressed(0) || pressed(1) || pressed(9)) state = 'title'; return; }
   if (state === 'title') {
+    if (pressed(4)) { state = 'medals'; return; }
+    if (pressed(5)) { state = 'armory'; menuCursor = 0; return; }
+    if (pressed(3) && campaign) { continueCampaign(); return; }
     if (pressed(14)) setDifficulty(diffIdx - 1);
     if (pressed(15)) setDifficulty(diffIdx + 1);
     if (pressed(12)) setMission(missionSel - 1);
@@ -384,7 +456,18 @@ function padOrder() {
 function onKeyPress(e) {
   initAudio();
   if (e.code === 'KeyM') { muted = !muted; return; }
+  if (state === 'armory' || state === 'levelwin') {
+    const n = +e.code.replace('Digit', '') - 1;
+    if (e.code.startsWith('Digit') && n >= 0 && n < UPGRADES.length) buyUpgrade(UPGRADES[n].id);
+    if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') leaveArmory();
+    return;
+  }
+  if (state === 'medals') { if (['Enter', 'Space', 'Escape'].includes(e.code)) state = 'title'; return; }
   if (state === 'title') {
+    if (e.code === 'KeyC' && campaign) { continueCampaign(); return; }
+    if (e.code === 'KeyM' && !e.shiftKey) { /* mute handled above */ }
+    if (e.code === 'KeyU') { state = 'armory'; menuCursor = 0; return; }
+    if (e.code === 'KeyG') { state = 'medals'; return; }
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') setDifficulty(diffIdx - 1);
     if (e.code === 'ArrowRight' || e.code === 'KeyD') setDifficulty(diffIdx + 1);
     if (e.code === 'ArrowUp' || e.code === 'KeyW') setMission(missionSel - 1);
@@ -393,7 +476,7 @@ function onKeyPress(e) {
     if (e.code === 'KeyR') openManual();
     return;
   }
-  if (state === 'levelwin' || state === 'over' || state === 'victory') {
+  if (state === 'over' || state === 'victory') {
     if (e.code === 'Enter' || e.code === 'Space') onClickOverlay();
     return;
   }
@@ -433,6 +516,18 @@ const START_CARRY = (idx = 0) => ({
 function setDifficulty(i) { diffIdx = (i + 3) % 3; store.set('difficulty', diffIdx); sfx('order'); }
 function setMission(i) { missionSel = (i + LEVELS.length) % LEVELS.length; sfx('order'); }
 function deploy() { carry = START_CARRY(missionSel); newLevel(missionSel); }
+function continueCampaign() {
+  if (!campaign) return;
+  diffIdx = campaign.diff ?? diffIdx; gameMode = campaign.mode || 'campaign';
+  carry = { plastic: campaign.carry.plastic, squad: campaign.carry.squad.slice() };
+  newLevel(campaign.mission);
+}
+function leaveArmory() {
+  if (state === 'levelwin') newLevel(G.idx + 1);
+  else state = 'title';
+  sfx('order');
+}
+const MENU_STATES = ['title', 'armory', 'medals', 'levelwin'];
 function openManual() { try { window.location.href = 'controls.html'; } catch (e) { /* navigation blocked */ } }
 let carry = START_CARRY();
 let levelStartCarry = null;
@@ -449,6 +544,7 @@ function spawn(type, x, y, extra) {
     flash: 0, stuck: 0, detourT: 0, detourDir: 1, anim: rand(0, 6), moving: false, lastHit: 0,
   };
   if (T.team === 't') { u.hp = u.maxHp = Math.round(T.hp * DIFF().enemyHp); }
+  else if (!T.building) { u.hp = u.maxHp = Math.round(T.hp * (1 + 0.15 * upg('armor'))); }
   if (extra) Object.assign(u, extra);
   G.units.push(u);
   return u;
@@ -460,14 +556,15 @@ function newLevel(idx) {
   levelStartCarry = { plastic: carry.plastic, squad: carry.squad.slice() };
   G = {
     L, idx, units: [], bullets: [], parts: [], obs: [], pickups: [], decals: [], texts: [], pings: [],
-    jobs: [], buildMode: false, buildIdx: 0,
+    jobs: [], buildMode: false, buildIdx: 0, mode: gameMode,
     time: 0, shake: 0, plastic: carry.plastic, lives: DIFF().lives, cam: { x: 400, y: 1000 }, sel: new Set(), mines: [], outposts: [],
     banner: null, respawn: 0, boss: null, endT: 0, waveT: L.waveT * DIFF().wave, kills: 0, lost: 0, ground: null,
   };
   WORLD_W = L.w; WORLD_H = L.h;
   const midY = WORLD_H / 2;
   G.hq = spawn('hq', 330, midY);
-  G.sarge = spawn('sarge', 460, midY, { slot: 0, ammo: SARGE_SLOTS.map(sl => sl.ammo), regenT: 0, driving: null });
+  G.sarge = spawn('sarge', 460, midY, { slot: 0, ammo: SARGE_SLOTS.map(sl => sl.ammo === Infinity ? Infinity : Math.round(sl.ammo * (1 + 0.3 * upg('ammo')))), regenT: 0, driving: null });
+  G.plastic += 60 * upg('income');
   carry.squad.forEach((t, i) => { const a = i * 2.4, rr = TYPES[t].vehicle ? 120 : 60; spawn(t, 450 + Math.cos(a) * rr, midY + Math.sin(a) * rr); });
   G.bunkers = L.bunkers.map(([fx, fy]) => {
     const x = fx * WORLD_W, y = fy * WORLD_H;
@@ -868,7 +965,7 @@ function fire(u, wkey, tx, ty, extra) {
   const off = u.r + (u.T.kind === 'tank' ? 16 : 6);
   const mx = u.x + Math.cos(base) * off, my = u.y + Math.sin(base) * off;
   if (W.kind === 'mine') {
-    G.mines.push({ x: u.x - Math.cos(u.a) * (u.r + 8), y: u.y - Math.sin(u.a) * (u.r + 8), team: u.team, arm: 1, dmg: W.dmg, splash: W.splash });
+    G.mines.push({ x: u.x - Math.cos(u.a) * (u.r + 8), y: u.y - Math.sin(u.a) * (u.r + 8), team: u.team, arm: 1, dmg: W.dmg, splash: W.splash, owner: 'mine' });
     sfx(W.snd, u.x, u.y);
     return;
   }
@@ -876,14 +973,14 @@ function fire(u, wkey, tx, ty, extra) {
     const d = clamp(Math.hypot(tx - u.x, ty - u.y), W.minRange || 0, W.range);
     const ga = base + (W.arc ? rand(-0.05, 0.05) : 0);
     G.bullets.push({ kind: 'grenade', team: u.team, sx: mx, sy: my, tx: u.x + Math.cos(ga) * d, ty: u.y + Math.sin(ga) * d, t: 0,
-      dur: W.arc ? 0.7 + d / 650 : 0.35 + d / 900, h: W.arc || 60, dmg: W.dmg, splash: W.splash, x: mx, y: my });
+      dur: W.arc ? 0.7 + d / 650 : 0.35 + d / 900, h: W.arc || 60, dmg: W.dmg, splash: W.splash, x: mx, y: my, owner: u.id });
   } else {
     for (let i = 0; i < (W.pellets || 1); i++) {
       if (i) a = base + rand(-(W.spread || 0), W.spread || 0);
       const spd = W.spd * (W.pellets ? rand(0.85, 1.1) : 1);
       const b = { kind: W.kind, x: mx, y: my, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: W.life || W.range / W.spd * 1.1,
         maxLife: W.life || W.range / W.spd * 1.1, team: u.team, dmg: W.dmg, splash: W.splash || 0,
-        hits: W.kind === 'flame' || W.pierce ? new Set() : null, pierce: W.pierce || 0, sniper: !!W.pierce };
+        hits: W.kind === 'flame' || W.pierce ? new Set() : null, pierce: W.pierce || 0, sniper: !!W.pierce, owner: u.id };
       if (extra) Object.assign(b, extra);
       G.bullets.push(b);
     }
@@ -893,24 +990,38 @@ function fire(u, wkey, tx, ty, extra) {
   sfx(W.snd, u.x, u.y);
 }
 
-function damage(u, amt, fromTeam) {
+function damage(u, amt, fromTeam, owner) {
   if (u.dead) return;
   if (u.type === 'boss' && u.shield) {
     if (Math.random() < 0.3) { addPart({ x: u.x + rand(-30, 30), y: u.y + rand(-30, 30), vx: 0, vy: 0, life: 0.3, size: 10, col: '#7fe8ff', type: 'flash' }); sfx('shield', u.x, u.y); }
     return;
   }
-  if (fromTeam === 't') amt *= DIFF().enemyDmg;
+  if (fromTeam === 't' && G.mode !== 'versus') amt *= DIFF().enemyDmg;
+  if (fromTeam === 'g') amt *= 1 + 0.1 * upg('damage');
   u.hp -= amt; u.flash = 0.08; u.lastHit = G.time;
   if (u === G.sarge) { G.sarge.regenT = 4; if (amt > 5) { sfx('hurt'); rumble(0.5, 0.3, 120); } }
   if (u.driver && amt > 5) rumble(0.4, 0.4, 90);
-  if (u.hp <= 0) kill(u);
+  if (u.hp <= 0) kill(u, owner);
 }
 
-function kill(u) {
+function kill(u, owner) {
   u.dead = true;
+  if (u.team === 't' && G.mode !== 'versus') {
+    award('first'); bump('kills');
+    if (u.type === 'bunker') bump('bunkers');
+    if (owner === 'mine') bump('mineKills');
+    else if (owner === 'run') bump('runovers');
+    else if (owner) {
+      const k = G.units.find(x => x.id === owner);
+      if (k && k.driver && k.T.kind === 'plane') bump('planeKills');
+      if (k && k.driver && k.T.kind === 'tank') bump('tankKills');
+    }
+    if (u.miniboss) award('giant');
+    if (u.type === 'boss') award('overlord');
+  }
   if (u.team === 't') {
     G.kills++;
-    const b = Math.round((u.T.bounty || 0) * DIFF().bounty);
+    const b = Math.round((u.T.bounty || 0) * DIFF().bounty * (1 + 0.15 * upg('income')));
     if (b) { G.plastic += b; floatText(u.x, u.y - 20, '+' + b, '#bff27a'); }
     const src = G.units.find(x => x.id === u.src); if (src) src.kids--;
     if (!u.T.building && u.type !== 'boss') {
@@ -946,6 +1057,7 @@ function kill(u) {
   }
   if (u.type === 'boss') banner('THE OVERLORD HAS FALLEN!', 'Plastic justice is served.', 4);
   if (u === G.sarge) {
+    G.sargeDowned = true;
     G.lives--;
     if (G.lives > 0 && !G.hq.dead) { G.respawn = 4; banner('Sarge is down!', 'Redeploying from the nearest outpost...', 3); }
     else { G.endT = 2.5; G.result = 'over'; G.reason = G.hq.dead ? 'HQ destroyed' : 'Sarge is out of lives'; }
@@ -953,12 +1065,12 @@ function kill(u) {
   if (u === G.hq) { G.endT = 2.5; G.result = 'over'; G.reason = 'Your HQ was destroyed'; banner('HQ DESTROYED', '', 3); }
 }
 
-function explode(x, y, R, dmg, team) {
+function explode(x, y, R, dmg, team, owner) {
   for (const u of G.units) {
     if (u.dead || u.team === team) continue;
     const d = Math.max(0, dist(u, { x, y }) - u.r);
     if (d < R) {
-      damage(u, dmg * (1 - 0.6 * d / R), team);
+      damage(u, dmg * (1 - 0.6 * d / R), team, owner);
       if (!u.T.building && u.type !== 'boss' && !u.dead) {
         const a = Math.atan2(u.y - y, u.x - x); u.x += Math.cos(a) * 12; u.y += Math.sin(a) * 12; collideObs(u);
       }
@@ -1040,7 +1152,7 @@ function placeBuild(x, y) {
   if (err) { banner('', err, 1.8); sfx('deny'); return; }
   G.plastic -= S.cost;
   const s = G.sarge, from = s.driving || s;
-  const job = { id: S.id, name: S.name, x, y, vert: Math.abs(x - from.x) > Math.abs(y - from.y), progress: 0, need: S.time, eng: null };
+  const job = { id: S.id, name: S.name, x, y, vert: Math.abs(x - from.x) > Math.abs(y - from.y), progress: 0, need: S.time / (1 + 0.3 * upg('build')), eng: null };
   if (S.id === 'bridge') {
     const seg = riverSegAt(x, y);
     job.y = seg.y + seg.h / 2; const c = riverAt(job.y);
@@ -1080,12 +1192,13 @@ function completeJob(j) {
   } else if (j.id === 'pill') {
     spawn('gpill', j.x, j.y);
   } else if (j.id === 'mines') {
-    for (let i = 0; i < 7; i++) { const a = i / 6 * TAU, r = i ? 46 : 0; G.mines.push({ x: j.x + Math.cos(a) * r, y: j.y + Math.sin(a) * r, team: 'g', arm: 1, dmg: 130, splash: 90 }); }
+    for (let i = 0; i < 7; i++) { const a = i / 6 * TAU, r = i ? 46 : 0; G.mines.push({ x: j.x + Math.cos(a) * r, y: j.y + Math.sin(a) * r, team: 'g', arm: 1, dmg: 130, splash: 90, owner: 'mine' }); }
   } else if (j.id === 'bridge') {
-    j.seg.bridged = true;
+    j.seg.bridged = true; award('bridge');
   }
   for (const u of G.units) if (!u.T.air && !u.T.building && dist(u, j) < 80) collideObs(u);
   floatText(j.x, j.y - 30, j.name + ' built!', '#bff27a');
+  bump('builds');
   sfx('recruit');
 }
 
@@ -1231,7 +1344,7 @@ function flyForward(u, dt) {
   u.moving = true;
 }
 function dropBomb(u) {
-  G.bullets.push({ kind: 'bomb', team: u.team, sx: u.x, sy: u.y, tx: u.x + Math.cos(u.a) * 70, ty: u.y + Math.sin(u.a) * 70, x: u.x, y: u.y, t: 0, dur: 0.55, z: 85 });
+  G.bullets.push({ kind: 'bomb', team: u.team, sx: u.x, sy: u.y, tx: u.x + Math.cos(u.a) * 70, ty: u.y + Math.sin(u.a) * 70, x: u.x, y: u.y, t: 0, dur: 0.55, z: 85, owner: u.id });
   sfx('throw', u.x, u.y);
 }
 function bombTargetBelow(u) {
@@ -1291,7 +1404,7 @@ function controlVehicle(v, dt) {
       // run over tan infantry
       for (const o of G.units) {
         if (o.dead || o.team !== 't' || o.T.building || o.T.vehicle || o.type === 'boss') continue;
-        if (dist(v, o) < v.r + o.r + 2) damage(o, (v.T.kind === 'tank' ? 140 : 90) * dt, 'g');
+        if (dist(v, o) < v.r + o.r + 2) damage(o, (v.T.kind === 'tank' ? 140 : 90) * dt, v.team, 'run');
       }
     }
     v.moving = true;
@@ -1368,7 +1481,7 @@ function update(dt) {
     if (m.arm > 0) continue;
     for (const u of G.units) {
       if (u.dead || u.team === m.team || u.T.air || u.T.building) continue;
-      if (dist(u, m) < u.r + 22) { m.dead = true; explode(m.x, m.y, m.splash, m.dmg, m.team); break; }
+      if (dist(u, m) < u.r + 22) { m.dead = true; explode(m.x, m.y, m.splash, m.dmg, m.team, m.owner); break; }
     }
   }
   G.mines = G.mines.filter(m => !m.dead);
@@ -1419,11 +1532,28 @@ function update(dt) {
         carry = { plastic: G.plastic + 100, squad: squad().map(u => u.type) };
         state = G.idx === LEVELS.length - 1 ? 'victory' : 'levelwin';
         sfx('win');
+        missionRewards();
       } else { state = 'over'; sfx('lose'); }
     }
   }
 }
 
+function missionRewards() {
+  if (G.mode === 'versus' || G.rewarded) return;
+  G.rewarded = true;
+  const earned = [['Mission complete', 1]];
+  if (!G.lost) earned.push(['No squad losses', 1]);
+  if (!G.sargeDowned) earned.push(['Sarge never went down', 1]);
+  if (diffIdx === 2) earned.push(['Hard difficulty', 1]);
+  G.starsEarned = earned;
+  stars += earned.reduce((a, e) => a + e[1], 0); store.set('stars', stars);
+  if (!G.sargeDowned) award('untouchable');
+  if (!G.lost) award('noloss');
+  if (diffIdx === 2) award('hard');
+  if (G.mode === 'coop') award('coop');
+  if (G.idx === LEVELS.length - 1) { award('campaign'); campaign = null; store.set('campaign', null); }
+  else { campaign = { mission: G.idx + 1, carry, diff: diffIdx, mode: G.mode }; store.set('campaign', campaign); }
+}
 function updateSarge(dt) {
   const s = G.sarge;
   if (s.dead) return;
@@ -1450,7 +1580,7 @@ function updateSarge(dt) {
     } else { s.cd = 0.4; sfx('deny'); floatText(s.x, s.y - 24, 'Out of ' + slot.name + ' ammo!', '#ffd76a'); }
   }
   s.regenT -= dt;
-  if (s.regenT <= 0 && s.hp < s.maxHp) s.hp = Math.min(s.maxHp, s.hp + 6 * dt);
+  if (s.regenT <= 0 && s.hp < s.maxHp) s.hp = Math.min(s.maxHp, s.hp + 6 * (1 + 0.5 * upg('medic')) * dt);
 }
 
 function shootAt(u, t, wkey) {
@@ -1528,7 +1658,7 @@ function medicAI(u, dt) {
     else {
       u.a = lerpAngle(u.a, Math.atan2(t.y - u.y, t.x - u.x), 0.3);
       if (u.cd <= 0) {
-        u.cd = WEAP.heal.cd; t.hp = Math.min(t.maxHp, t.hp + WEAP.heal.heal);
+        u.cd = WEAP.heal.cd; t.hp = Math.min(t.maxHp, t.hp + WEAP.heal.heal * (1 + 0.5 * upg('medic')));
         for (let i = 0; i < 4; i++) addPart({ x: t.x + rand(-8, 8), y: t.y + rand(-8, 8), vx: 0, vy: -40, life: 0.6, size: 4, col: '#7dff8a', type: 'plus' });
         sfx('heal', u.x, u.y);
       }
@@ -1687,14 +1817,14 @@ function updateBullets(dt) {
       b.t += dt;
       const k = Math.min(1, b.t / b.dur);
       b.x = b.sx + (b.tx - b.sx) * k; b.y = b.sy + (b.ty - b.sy) * k; b.z = 85 * (1 - k * k);
-      if (b.t >= b.dur) { b.dead = true; explode(b.tx, b.ty, 95, 110, b.team); }
+      if (b.t >= b.dur) { b.dead = true; explode(b.tx, b.ty, 95, 110, b.team, b.owner); }
       continue;
     }
     if (b.kind === 'grenade') {
       b.t += dt;
       const k = Math.min(1, b.t / b.dur);
       b.x = b.sx + (b.tx - b.sx) * k; b.y = b.sy + (b.ty - b.sy) * k; b.z = Math.sin(k * Math.PI) * (b.h || 60);
-      if (b.t >= b.dur) { b.dead = true; explode(b.tx, b.ty, b.splash, b.dmg, b.team); }
+      if (b.t >= b.dur) { b.dead = true; explode(b.tx, b.ty, b.splash, b.dmg, b.team, b.owner); }
       continue;
     }
     if (b.homing && !b.homing.dead) {
@@ -1708,7 +1838,7 @@ function updateBullets(dt) {
     // obstacles (shots fly over water)
     for (const o of G.obs) {
       if (o.kind === 'water' || !inRect(b.x, b.y, o)) continue;
-      if (b.kind === 'rocket' || b.kind === 'shell') explode(b.x, b.y, b.splash, b.dmg, b.team);
+      if (b.kind === 'rocket' || b.kind === 'shell') explode(b.x, b.y, b.splash, b.dmg, b.team, b.owner);
       else if (b.kind === 'flame') damageObs(o, b.dmg * 0.4);
       else { damageObs(o, b.dmg); for (let i = 0; i < 3; i++) addPart({ x: b.x, y: b.y, vx: rand(-80, 80), vy: rand(-80, 80), life: 0.2, size: 2, col: '#ffe9a0', type: 'spark' }); }
       b.dead = true; break;
@@ -1721,25 +1851,25 @@ function updateBullets(dt) {
       if (dist2(u, b) > rr * rr) continue;
       if (b.kind === 'flame') {
         if (b.hits.has(u.id)) continue;
-        b.hits.add(u.id); damage(u, b.dmg * (u.T.vehicle ? 0.6 : 1), b.team);
+        b.hits.add(u.id); damage(u, b.dmg * (u.T.vehicle ? 0.6 : 1), b.team, b.owner);
         if (Math.random() < 0.3) addPart({ x: u.x + rand(-6, 6), y: u.y + rand(-6, 6), vx: 0, vy: -30, life: 0.4, size: 6, col: '#ff8a2a', type: 'fire' });
         continue;
       }
-      if (b.kind === 'rocket' || b.kind === 'shell') explode(b.x, b.y, b.splash, b.dmg, b.team);
+      if (b.kind === 'rocket' || b.kind === 'shell') explode(b.x, b.y, b.splash, b.dmg, b.team, b.owner);
       else if (b.hits) { // piercing sniper round
         if (b.hits.has(u.id)) continue;
-        b.hits.add(u.id); damage(u, b.dmg, b.team);
+        b.hits.add(u.id); damage(u, b.dmg, b.team, b.owner);
         for (let i = 0; i < 4; i++) addPart({ x: b.x, y: b.y, vx: rand(-70, 70), vy: rand(-70, 70), life: 0.25, size: 2.5, col: COL[u.team].light, type: 'spark' });
         if (b.pierce-- > 0) continue;
       } else {
-        damage(u, b.dmg, b.team);
+        damage(u, b.dmg, b.team, b.owner);
         for (let i = 0; i < 3; i++) addPart({ x: b.x, y: b.y, vx: rand(-60, 60), vy: rand(-60, 60), life: 0.25, size: 2.5, col: COL[u.team].light, type: 'spark' });
       }
       b.dead = true; break;
     }
     if (!b.dead && b.life <= 0) {
       b.dead = true;
-      if (b.kind === 'rocket' || b.kind === 'shell') explode(b.x, b.y, b.splash, b.dmg, b.team);
+      if (b.kind === 'rocket' || b.kind === 'shell') explode(b.x, b.y, b.splash, b.dmg, b.team, b.owner);
     }
   }
   G.bullets = G.bullets.filter(b => !b.dead);
@@ -2635,17 +2765,98 @@ function drawTitle(dt) {
   txt(`${missionSel + 1}. ${L.name}`, cx, top + 245, 16, '#fff', 'center');
   txt(`${L.w} × ${L.h} · ${L.bunkers.length} bunkers${L.boss ? ' · boss' : ''}`, cx, top + 263, 11, '#b5c4a0', 'center', false);
 
-  // deploy + manual
-  menuBtn(cx - 195, top + 290, 230, 54, 'DEPLOY', true, deploy, touchMode ? 'tap to start' : padMode ? 'press A' : 'Enter');
-  menuBtn(cx + 45, top + 290, 150, 54, 'Field Manual', false, openManual, touchMode ? 'all controls' : padMode ? 'press View' : 'press R');
-  if (window.PF3D) menuBtn(cx - 75, top + 350, 150, 36, 'Classic 2D', false, () => { try { location.href = 'index.html'; } catch (e) { /* blocked */ } });
-  else menuBtn(cx - 75, top + 350, 150, 36, 'Try 3D (preview)', false, () => { try { location.href = '3d.html'; } catch (e) { /* blocked */ } });
+  // continue / deploy / manual
+  if (campaign) {
+    menuBtn(cx - 195, top + 290, 128, 54, 'CONTINUE', true, continueCampaign, `mission ${campaign.mission + 1}${touchMode ? '' : padMode ? ' · Y' : ' · C'}`);
+    menuBtn(cx - 61, top + 290, 128, 54, 'DEPLOY', false, deploy, touchMode ? 'new game' : padMode ? 'A · new' : 'Enter · new');
+    menuBtn(cx + 73, top + 290, 122, 54, 'Field Manual', false, openManual, touchMode ? 'controls' : padMode ? 'View' : 'R');
+  } else {
+    menuBtn(cx - 195, top + 290, 230, 54, 'DEPLOY', true, deploy, touchMode ? 'tap to start' : padMode ? 'press A' : 'Enter');
+    menuBtn(cx + 45, top + 290, 150, 54, 'Field Manual', false, openManual, touchMode ? 'all controls' : padMode ? 'press View' : 'press R');
+  }
+  const got = MEDALS.filter(m => medals[m.id]).length;
+  menuBtn(cx - 195, top + 352, 118, 38, `Medals ${got}/${MEDALS.length}`, false, () => { state = 'medals'; }, touchMode ? '' : padMode ? 'LB' : 'G');
+  if (window.PF3D) menuBtn(cx - 67, top + 352, 134, 38, 'Classic 2D', false, () => { try { location.href = 'index.html'; } catch (e) { /* blocked */ } });
+  else menuBtn(cx - 67, top + 352, 134, 38, 'Try 3D', false, () => { try { location.href = '3d.html'; } catch (e) { /* blocked */ } });
+  menuBtn(cx + 77, top + 352, 118, 38, `Armory ★${stars}`, false, () => { state = 'armory'; menuCursor = 0; }, touchMode ? '' : padMode ? 'RB' : 'U');
   if (window.PF3D) txt('3D PREVIEW', cx, top - 74, 14, '#ffe08a', 'center');
   const how = touchMode ? 'Left thumb moves · Right thumb aims & fires · Tap buttons to recruit, command and drive'
     : padMode ? 'D-pad: ◀ ▶ difficulty, ▲ ▼ mission · A deploy · View opens the field manual'
     : '← → difficulty · ↑ ↓ mission · Enter deploy · In game: WASD move, mouse aim/fire, H help';
-  txt(how, cx, top + 408, 12, '#c9d8b0', 'center', false);
+  txt(how, cx, top + 414, 12, '#c9d8b0', 'center', false);
   txt('Keyboard + mouse, Xbox controller, or touch (landscape works best)', cx, LH - 16, 12, 'rgba(230,245,210,0.55)', 'center', false);
+}
+function menuFrame() {
+  HS = Math.min(1, VH / 700, VW / 820);
+  const LW = VW / HS, LH = VH / HS;
+  ctx.setTransform(DPR * HS, 0, 0, DPR * HS, 0, 0);
+  hudButtons = [];
+  return { LW, LH, cx: LW / 2 };
+}
+function drawArmory(afterMission) {
+  const { LW, LH, cx } = menuFrame();
+  ctx.fillStyle = afterMission ? 'rgba(10,14,8,0.8)' : '#1d2a14'; ctx.fillRect(0, 0, LW, LH);
+  let y = Math.max(40, LH / 2 - 300);
+  if (afterMission) {
+    txt('MISSION COMPLETE', cx, y + 30, 40, '#b8ff7a', 'center');
+    const e = G.starsEarned || [];
+    txt(e.map(([l]) => '★ ' + l).join('    '), cx, y + 62, 15, '#ffe08a', 'center', false);
+    txt(`Tan troops destroyed: ${G.kills}  ·  Squad lost: ${G.lost}  ·  Next: ${LEVELS[G.idx + 1].name}`, cx, y + 86, 13, '#c9d8b0', 'center', false);
+    y += 100;
+  }
+  txt('ARMORY', cx, y + 30, 28, '#d6ffb0', 'center');
+  txt(`★ ${stars} star${stars === 1 ? '' : 's'} to spend  ·  upgrades are permanent`, cx, y + 54, 14, '#ffe08a', 'center', false);
+  const w = 560, x0 = cx - w / 2;
+  UPGRADES.forEach((U, i) => {
+    const yy = y + 70 + i * 54, lvl = upgrades[U.id] || 0, cost = upCost(lvl), on = padMode && menuCursor === i;
+    ctx.fillStyle = on ? 'rgba(120,180,70,0.35)' : 'rgba(16,22,12,0.75)'; rrect(x0, yy, w, 48, 8); ctx.fill();
+    if (on) { ctx.strokeStyle = '#ffe08a'; ctx.lineWidth = 2; ctx.stroke(); }
+    txt(`${touchMode || padMode ? '' : (i + 1) + '. '}${U.name}`, x0 + 14, yy + 20, 15, '#e7f5c9');
+    txt(U.desc, x0 + 14, yy + 38, 12, '#b5c4a0', 'left', false);
+    for (let k = 0; k < 3; k++) { ctx.fillStyle = k < lvl ? '#ffd34a' : 'rgba(255,255,255,0.15)'; star(x0 + 360 + k * 22, yy + 24, 8); }
+    const can = lvl < 3 && stars >= cost;
+    ctx.fillStyle = lvl >= 3 ? 'rgba(255,255,255,0.08)' : can ? 'rgba(120,180,70,0.9)' : 'rgba(255,255,255,0.1)'; rrect(x0 + w - 110, yy + 8, 98, 32, 7); ctx.fill();
+    txt(lvl >= 3 ? 'MAXED' : `Buy ★${cost}`, x0 + w - 61, yy + 29, 13, lvl >= 3 ? '#9aa38a' : can ? '#fff' : '#9aa38a', 'center');
+    hudButtons.push({ x: x0 + w - 110, y: yy + 8, w: 98, h: 32, fn: () => buyUpgrade(U.id) });
+  });
+  const by = y + 70 + UPGRADES.length * 54 + 8, on = padMode && menuCursor === UPGRADES.length;
+  menuBtn(cx - 120, by, 240, 46, afterMission ? 'CONTINUE ▶' : 'BACK', true, leaveArmory, padMode ? (on ? 'press A' : 'Menu') : touchMode ? '' : 'Enter');
+  if (on) { ctx.strokeStyle = '#ffe08a'; ctx.lineWidth = 3; rrect(cx - 122, by - 2, 244, 50, 10); ctx.stroke(); }
+}
+function drawMedals() {
+  const { LW, LH, cx } = menuFrame();
+  ctx.fillStyle = '#1d2a14'; ctx.fillRect(0, 0, LW, LH);
+  const got = MEDALS.filter(m => medals[m.id]).length;
+  const top = Math.max(30, LH / 2 - 330);
+  txt('MEDALS', cx, top + 36, 34, '#d6ffb0', 'center');
+  txt(`${got} of ${MEDALS.length} earned  ·  ${stats.kills || 0} tan troops defeated  ·  ${stats.bunkers || 0} bunkers destroyed  ·  ${stats.builds || 0} structures built`, cx, top + 62, 13, '#ffe08a', 'center', false);
+  const colW = 330, x0 = cx - colW - 6;
+  MEDALS.forEach((m, i) => {
+    const x = x0 + (i % 2) * (colW + 12), y = top + 80 + Math.floor(i / 2) * 58, has = !!medals[m.id];
+    ctx.fillStyle = has ? 'rgba(120,180,70,0.3)' : 'rgba(16,22,12,0.7)'; rrect(x, y, colW, 50, 8); ctx.fill();
+    ctx.fillStyle = has ? '#ffd34a' : 'rgba(255,255,255,0.15)'; star(x + 26, y + 25, 14);
+    txt(m.name, x + 50, y + 21, 14, has ? '#fff' : '#9aa38a');
+    let d = m.desc; if (m.stat && !has) d += `  (${Math.min(stats[m.stat] || 0, m.goal)}/${m.goal})`;
+    txt(d, x + 50, y + 39, 12, has ? '#d9f7b5' : '#7f8a72', 'left', false);
+  });
+  const by = top + 80 + Math.ceil(MEDALS.length / 2) * 58 + 6;
+  menuBtn(cx - 100, by, 200, 42, 'BACK', true, () => { state = 'title'; }, touchMode ? '' : padMode ? 'B' : 'Esc');
+}
+function drawToasts(dt) {
+  if (!toasts.length) return;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  toasts.slice(0, 1).forEach(t => {   // one at a time, queued
+    const a = Math.min(1, t.t * 2, (4.5 - t.t) * 5 + 0.2), w = Math.min(380, VW - 40), x = VW / 2 - w / 2;
+    const y = state === 'play' && G && G.boss && !G.boss.dead ? 70 : 8;
+    ctx.globalAlpha = Math.max(0, a);
+    ctx.fillStyle = 'rgba(30,40,18,0.92)'; rrect(x, y, w, 56, 10); ctx.fill(); ctx.strokeStyle = '#ffd34a'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#ffd34a'; star(x + 30, y + 28, 15);
+    txt(t.title.toUpperCase(), x + 56, y + 20, 11, '#ffe08a');
+    txt(t.text, x + 56, y + 38, 15, '#fff');
+    if (t.sub) txt(t.sub, x + 56, y + 51, 10, '#c9d8b0', 'left', false);
+  });
+  ctx.globalAlpha = 1;
+  toasts[0].t -= dt; if (toasts[0].t <= 0) toasts.shift();
 }
 function drawOverlay(title, lines, prompt, col) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -2656,9 +2867,9 @@ function drawOverlay(title, lines, prompt, col) {
 }
 function onClickOverlay() {
   if (state === 'title') deploy();
-  else if (state === 'levelwin') newLevel(G.idx + 1);
   else if (state === 'over') { carry = { plastic: levelStartCarry.plastic, squad: levelStartCarry.squad.slice() }; newLevel(G.idx); }
   else if (state === 'victory') { state = 'title'; G = null; titleArmy = null; }
+  else if (state === 'over' && false) { /* handled above */ }
   else if (state === 'paused') state = 'play';
 }
 
@@ -2669,6 +2880,8 @@ function frame(now) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   pollPad();
   if (state === 'title') drawTitle(dt);
+  else if (state === 'medals') drawMedals();
+  else if (state === 'armory' && !G) drawArmory(false);
   else {
     if (state === 'play') update(dt);
     if (use3D()) {
@@ -2679,10 +2892,12 @@ function frame(now) {
     drawWeather(); drawHUD();
     const mins = Math.floor(G.time / 60), secs = String(Math.floor(G.time % 60)).padStart(2, '0');
     if (state === 'paused') drawOverlay('PAUSED', [touchMode ? 'Tap to resume' : padMode ? 'Press Menu or A to resume' : 'Press P or Esc to resume'], null, '#d6ffb0');
-    else if (state === 'levelwin') drawOverlay('MISSION COMPLETE', [`Tan troops destroyed: ${G.kills}   ·   Squad lost: ${G.lost}   ·   Time ${mins}:${secs}`, `Surviving squad members and plastic carry over (+100 bonus plastic).`, `Next: ${LEVELS[G.idx + 1].name}`], 'Click to continue', '#b8ff7a');
+    else if (state === 'levelwin') drawArmory(true);
+    else if (state === 'armory') drawArmory(false);
     else if (state === 'over') drawOverlay('MISSION FAILED', [G.reason || '', 'The tan menace grows stronger...'], 'Click to retry mission', '#ff7a5a');
     else if (state === 'victory') drawOverlay('VICTORY!', ['The Tan Overlord is melted down into a puddle.', `Final mission: ${G.kills} tan troops destroyed in ${mins}:${secs}.`, 'The backyard is safe — for now.'], 'Click to return to the title', '#ffe08a');
   }
+  drawToasts(dt);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
