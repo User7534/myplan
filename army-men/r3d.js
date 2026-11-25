@@ -56,13 +56,24 @@ function resize() {
 addEventListener('resize', resize); resize();
 
 // ---------------------------------------------------------------- materials
-const plastic = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.36, metalness: 0, clearcoat: 0.7, clearcoatRoughness: 0.22 });
+function noiseTexture(size = 128) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const g = c.getContext('2d'), img = g.createImageData(size, size);
+  for (let i = 0; i < size * size; i++) { const v = 118 + Math.random() * 20; img.data.set([v, v, v, 255], i * 4); }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 3);
+  return t;
+}
+const plastic = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.36, metalness: 0, clearcoat: 0.7, clearcoatRoughness: 0.22, bumpMap: noiseTexture(), bumpScale: 0.35 });
 const matte = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
 const glow = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
 const smokeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.32, roughness: 1, depthWrite: false });
 const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
 const decalMat = new THREE.MeshBasicMaterial({ color: 0x1e140a, transparent: true, opacity: 0.38, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
 const iceMat = new THREE.MeshPhysicalMaterial({ color: '#a9dcf3', roughness: 0.08, metalness: 0, transparent: true, opacity: 0.78, clearcoat: 1 });
+const waterMat = new THREE.MeshPhysicalMaterial({ color: '#2f7fa6', roughness: 0.06, metalness: 0, transparent: true, opacity: 0.88, clearcoat: 1 });
+const shallowMat = new THREE.MeshPhysicalMaterial({ color: '#5aa5c4', roughness: 0.1, transparent: true, opacity: 0.55, clearcoat: 1 });
+const ghostMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false });
 const shieldMat = new THREE.MeshBasicMaterial({ color: '#7fe8ff', transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false });
 
 // ---------------------------------------------------------------- geometry helpers
@@ -86,121 +97,213 @@ const shadeHex = (hex, amt) => { const c = new THREE.Color(hex); const hsl = {};
 const TEAM = { g: '#4c8a2a', t: '#c9a467' };
 
 // ---------------------------------------------------------------- soldier models
-// Real army men are a single molded color, so everything shares the team color; weapons a shade darker.
+// Real army men are one molded color, so the whole figure shares the team color (weapons a shade
+// darker). Limbs are capsules and the helmet is sculpted so the figures read as rounded plastic.
+const lathe = (pts, seg = 28) => new THREE.LatheGeometry(pts.map(([x, y]) => new THREE.Vector2(x, y)), seg);
+function limb(P, color, x1, y1, z1, x2, y2, z2, r) {
+  const dx = x2 - x1, dy = y2 - y1, dz = z2 - z1, len = Math.hypot(dx, dy, dz);
+  const g = cap(r, Math.max(0.01, len - r * 0.5));
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx, dy, dz).normalize());
+  const e = new THREE.Euler().setFromQuaternion(q);
+  P.push(part(g, color, { x: (x1 + x2) / 2, y: (y1 + y2) / 2, z: (z1 + z2) / 2, rx: e.x, ry: e.y, rz: e.z }));
+}
 function soldierGeo(team, w, sarge) {
   const c = TEAM[team], dk = shadeHex(c, -0.08), P = [];
-  P.push(part(cyl(10, 10.6, 2.2, 28), c, { y: 1.1 }));                       // the plastic base
+  // beveled molded base
+  P.push(part(lathe([[0, 0], [10.4, 0], [10.8, 0.6], [10.6, 2.0], [9.8, 2.5], [0, 2.5]], 32), c));
   const kneel = w === 'mortar' || w === 't_mortar';
+  const hip = kneel ? 8.5 : 12.5;
   if (kneel) {
-    P.push(part(box(8, 3.2, 3.4), c, { x: 1, y: 3.8, z: 2.4 }));
-    P.push(part(box(3.4, 8, 3.4), c, { x: -3, y: 6, z: -2.4 }));
+    limb(P, c, 0, hip, 2.4, 5, 4, 2.4, 1.9); limb(P, c, 5, 4, 2.4, 5.5, 2.6, 2.4, 1.8);     // front leg, knee up
+    limb(P, c, 0, hip, -2.4, -2, 3.2, -2.4, 1.9); limb(P, c, -2, 3.2, -2.4, -7, 3.2, -2.4, 1.8); // back leg, knee down
   } else {
-    P.push(part(box(3.3, 11, 3.3), c, { x: -1.6, y: 7.5, z: 2.5, rz: 0.12 }));  // legs in a firing stance
-    P.push(part(box(3.3, 11, 3.3), c, { x: 2.6, y: 7.5, z: -2.4, rz: -0.18 }));
+    limb(P, c, 0.5, hip, 2.4, -1.6, 2.6, 3.0, 1.9);   // braced firing stance
+    limb(P, c, 0.5, hip, -2.4, 3.2, 2.6, -3.0, 1.9);
+    P.push(part(box(4.6, 1.8, 2.8), c, { x: -1, y: 3.1, z: 3.0 }));      // boots
+    P.push(part(box(4.6, 1.8, 2.8), c, { x: 3.9, y: 3.1, z: -3.0 }));
   }
-  const ty = kneel ? 12 : 17;
-  P.push(part(box(5.6, 9, 7.2), c, { y: ty }));                               // torso
-  P.push(part(box(2.6, 6.5, 5.6), dk, { x: -4.1, y: ty + 0.5 }));             // backpack
-  P.push(part(sph(3.1, 12, 9), c, { x: 0.6, y: ty + 7 }));                    // head
-  P.push(part(new THREE.SphereGeometry(4.1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), c, { x: 0.3, y: ty + 7.3, sy: 0.85 })); // helmet
-  P.push(part(cyl(4.7, 4.7, 0.7, 18), c, { x: 0.3, y: ty + 7.3 }));          // brim
-  P.push(part(box(7.5, 2.3, 2.3), c, { x: 3.6, y: ty + 2, z: 2.6 }));         // arms forward
-  P.push(part(box(7, 2.2, 2.2), c, { x: 4.5, y: ty + 1.6, z: -2.2 }));
-  const gy = ty + 2;
+  const ty = hip + 4.6;
+  P.push(part(cap(3.3, 4.2), c, { y: ty, sx: 0.85, sz: 1.15 }));                 // torso
+  P.push(part(new THREE.TorusGeometry(3.4, 0.55, 6, 18), dk, { y: ty - 3.2, rx: Math.PI / 2, sx: 0.85, sy: 1.15 })); // belt
+  for (const z of [-2.4, 2.4]) P.push(part(box(1.6, 2, 1.8), dk, { x: 2.6, y: ty - 3.1, z }));            // ammo pouches
+  P.push(part(box(0.6, 7.5, 1), dk, { x: 2.75, y: ty + 0.4, z: 0, rx: 0.5 }));                           // webbing strap
+  P.push(part(box(2.8, 6, 5.6), dk, { x: -3.9, y: ty + 0.6 }));                                          // backpack
+  P.push(part(cyl(1.2, 1.4, 1.6, 10), c, { x: 0.4, y: ty + 4.6 }));                                      // neck
+  P.push(part(sph(2.9, 16, 12), c, { x: 0.7, y: ty + 6.8 }));                                            // head
+  P.push(part(sph(0.6, 8, 6), c, { x: 3.5, y: ty + 6.6 }));                                              // nose
+  P.push(part(new THREE.SphereGeometry(4.0, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), c, { x: 0.3, y: ty + 7.2, sy: 0.82 })); // helmet dome
+  P.push(part(lathe([[3.9, 0], [4.9, -0.6], [4.9, -0.1], [3.9, 0.4]], 24), c, { x: 0.3, y: ty + 7.3 }));   // flared rim
+  P.push(part(new THREE.TorusGeometry(2.6, 0.22, 4, 16, Math.PI), dk, { x: 0.8, y: ty + 6.6, ry: Math.PI / 2, rz: Math.PI })); // chin strap
+  // arms reach for the weapon
+  const sh = ty + 2.6, gy = ty + 1.8;
+  const aims = !(w === 'heal');
   if (w === 'bazooka' || w === 't_bazooka' || w === 's_bazooka') {
-    P.push(part(cyl(2, 2, 21, 12), dk, { x: 1.5, y: ty + 4.6, z: 2.6, rz: Math.PI / 2 }));
-    P.push(part(cyl(2.6, 2.2, 2, 12), dk, { x: 12, y: ty + 4.6, z: 2.6, rz: Math.PI / 2 }));
-  } else if (w === 'flamer' || w === 's_flamer') {
-    P.push(part(cyl(2.2, 2.2, 9, 10), dk, { x: -5, y: ty, z: 1.8 }));
-    P.push(part(cyl(2.2, 2.2, 9, 10), dk, { x: -5, y: ty, z: -1.8 }));
-    P.push(part(box(12, 1.8, 1.8), dk, { x: 7, y: gy, z: 1.2 }));
-  } else if (w === 'heal') {
-    P.push(part(box(1.2, 0.6, 5.5), '#f4f4f4', { x: 0.3, y: ty + 10.9 }));
-    P.push(part(box(5.5, 0.6, 1.2), '#f4f4f4', { x: 0.3, y: ty + 10.9 }));
-  } else if (w === 'sniper' || w === 's_sniper') {
-    P.push(part(box(22, 1.5, 1.5), dk, { x: 8, y: gy, z: 1.2 }));
-    P.push(part(cyl(1, 1, 6, 8), dk, { x: 6, y: gy + 1.6, z: 1.2, rz: Math.PI / 2 }));
-  } else if (w === 'mortar' || w === 't_mortar') {
-    P.push(part(cyl(2.4, 2.4, 14, 12), dk, { x: 8, y: 7, rz: -0.75 }));
-    P.push(part(box(6, 1, 6), dk, { x: 5, y: 1.6 }));
-  } else if (w === 's_mg') {
-    P.push(part(box(17, 2.8, 2.6), dk, { x: 7, y: gy, z: 1.2 }));
-    P.push(part(box(3, 3, 3), dk, { x: 3, y: gy - 2.5, z: 1.2 }));
-  } else if (w === 's_shotgun') {
-    P.push(part(box(13, 2.2, 2), dk, { x: 6.5, y: gy, z: 1.2 }));
+    limb(P, c, 0, sh, 3.2, 3, sh + 1.4, 3.6, 1.3); limb(P, c, 0, sh, -3.2, 4.5, sh + 0.5, -0.4, 1.3);
+  } else if (aims) {
+    limb(P, c, 0, sh, 3.2, 2.6, sh - 2.4, 3.2, 1.3); limb(P, c, 2.6, sh - 2.4, 3.2, 5.5, gy, 1.4, 1.2);
+    limb(P, c, 0, sh, -3.2, 4.2, sh - 1.5, -2.5, 1.3); limb(P, c, 4.2, sh - 1.5, -2.5, 9, gy, 1.0, 1.2);
   } else {
-    P.push(part(box(15, 1.7, 1.7), dk, { x: 6.5, y: gy, z: 1.2 }));           // rifle
-    if (w === 's_grenade' || w === 's_mine') P.push(part(sph(1.8, 8, 6), dk, { x: 2, y: ty - 4, z: -3.8 }));
+    limb(P, c, 0, sh, 3.2, 1, ty - 2, 3.8, 1.3); limb(P, c, 0, sh, -3.2, 4.5, sh - 1, -1.5, 1.3);
   }
-  if (sarge) P.push(part(new THREE.OctahedronGeometry(2.2), '#ffd34a', { x: 0.3, y: ty + 11.2, sy: 0.45 }));
+  // weapons
+  if (w === 'bazooka' || w === 't_bazooka' || w === 's_bazooka') {
+    P.push(part(cyl(2, 2, 22, 14), dk, { x: 1.5, y: ty + 4.4, z: 2.6, rz: Math.PI / 2 }));
+    P.push(part(cyl(2.7, 2.1, 2.4, 14), dk, { x: 12.6, y: ty + 4.4, z: 2.6, rz: Math.PI / 2 }));
+    P.push(part(box(1.6, 2.4, 1), dk, { x: 3, y: ty + 6.6, z: 2.6 }));                        // sight
+    P.push(part(box(1.2, 3.2, 1.2), dk, { x: 2.5, y: ty + 2.2, z: 2.6 }));                    // grip
+  } else if (w === 'flamer' || w === 's_flamer' || w === 't_flamer') {
+    for (const z of [-1.8, 1.8]) { P.push(part(cap(2.1, 5.5), dk, { x: -5.4, y: ty + 0.4, z })); }
+    P.push(part(new THREE.TorusGeometry(4, 0.45, 6, 14, Math.PI), dk, { x: -1.2, y: ty - 3.5, z: 1.8, rx: Math.PI / 2 })); // hose
+    P.push(part(cyl(0.9, 0.9, 12, 10), dk, { x: 7, y: gy, z: 1.2, rz: Math.PI / 2 }));
+    P.push(part(cyl(1.4, 1.1, 2, 10), dk, { x: 13.3, y: gy, z: 1.2, rz: Math.PI / 2 }));
+  } else if (w === 'heal') {
+    P.push(part(box(1.3, 0.6, 5.5), '#f4f4f4', { x: 0.3, y: ty + 10.6 }));
+    P.push(part(box(5.5, 0.6, 1.3), '#f4f4f4', { x: 0.3, y: ty + 10.6 }));
+    P.push(part(box(3.2, 3, 4), dk, { x: -0.5, y: ty - 3.4, z: -3.9 }));                      // medical bag
+  } else if (w === 'sniper' || w === 's_sniper') {
+    P.push(part(cyl(0.6, 0.6, 16, 8), dk, { x: 11, y: gy, z: 1.2, rz: Math.PI / 2 }));
+    P.push(part(box(8, 2, 1.6), dk, { x: 3, y: gy - 0.4, z: 1.2 }));
+    P.push(part(cyl(1, 1, 6, 10), dk, { x: 5, y: gy + 1.7, z: 1.2, rz: Math.PI / 2 }));     // scope
+    P.push(part(box(0.5, 3, 0.5), dk, { x: 12, y: gy - 1.6, z: 0.6, rz: 0.3 }));              // bipod
+  } else if (w === 'mortar' || w === 't_mortar') {
+    P.push(part(cyl(2.4, 2.4, 15, 14), dk, { x: 8, y: 7.5, rz: -0.75 }));
+    P.push(part(cyl(4, 4, 1, 16), dk, { x: 4.5, y: 2.8 }));                                   // baseplate
+    P.push(part(box(0.5, 7, 0.5), dk, { x: 11, y: 5, z: 1.5, rz: 0.4 }));
+  } else if (w === 's_mg') {
+    P.push(part(box(10, 3, 2.6), dk, { x: 5, y: gy, z: 1.2 }));
+    P.push(part(cyl(0.8, 0.8, 9, 8), dk, { x: 13.5, y: gy + 0.4, z: 1.2, rz: Math.PI / 2 }));
+    P.push(part(box(3, 3.2, 1.8), dk, { x: 4, y: gy - 2.8, z: 1.2 }));                        // ammo box
+  } else if (w === 's_shotgun') {
+    P.push(part(cyl(0.9, 0.9, 12, 8), dk, { x: 8, y: gy, z: 1.2, rz: Math.PI / 2 }));
+    P.push(part(cyl(0.8, 0.8, 9, 8), dk, { x: 7.5, y: gy - 1.5, z: 1.2, rz: Math.PI / 2 }));
+    P.push(part(box(5, 2.2, 1.6), dk, { x: 1.5, y: gy - 0.4, z: 1.2 }));
+  } else if (w === 'e_smg') {
+    P.push(part(box(7, 2, 1.6), dk, { x: 5.5, y: gy, z: 1.2 }));
+    P.push(part(box(1.2, 3.4, 1), dk, { x: 6, y: gy - 2.4, z: 1.2 }));
+    P.push(part(cyl(0.4, 0.4, 13, 6), '#8a6a3a', { x: -4.8, y: ty + 1, z: -1, rz: 0.35 }));    // shovel handle
+    P.push(part(box(0.6, 4.2, 3.4), '#9a9a9a', { x: -6.8, y: ty - 5, z: -1, rz: 0.35 }));     // shovel blade
+  } else {
+    P.push(part(cyl(0.6, 0.6, 10, 8), dk, { x: 11, y: gy, z: 1.2, rz: Math.PI / 2 }));        // barrel
+    P.push(part(box(9, 2, 1.6), dk, { x: 4, y: gy - 0.3, z: 1.2 }));                         // body + stock
+    P.push(part(box(1.2, 2.6, 1), dk, { x: 5.5, y: gy - 2, z: 1.2, rz: -0.2 }));              // magazine
+    if (w === 's_grenade' || w === 's_mine') P.push(part(sph(1.8, 10, 8), dk, { x: 2, y: ty - 3.4, z: -3.8 }));
+  }
+  if (sarge) P.push(part(new THREE.OctahedronGeometry(2.2), '#ffd34a', { x: 0.3, y: ty + 10.9, sy: 0.45 }));
   return merge(P);
 }
 function bossGeo() {
-  const g = soldierGeo('t', 's_mg', false), P = [g];
-  P.push(part(new THREE.CylinderGeometry(4.8, 4.2, 3.2, 10, 1, true), '#ffcf33', { x: 0.3, y: 28.8 }));
-  for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2; P.push(part(new THREE.ConeGeometry(1.1, 3, 6), '#ffcf33', { x: 0.3 + Math.cos(a) * 4.4, y: 31.6, z: Math.sin(a) * 4.4 })); }
-  P.push(part(sph(1.1, 8, 6), '#d42c2c', { x: 4.8, y: 29 }));
-  P.push(part(box(1.2, 16, 12), '#9a1f1f', { x: -6.4, y: 13, rz: 0.12 }));   // cape
-  return merge(P.map(p => p.index ? p.toNonIndexed() : p));
+  const P = [soldierGeo('t', 's_mg', false)];
+  P.push(part(new THREE.CylinderGeometry(4.8, 4.2, 3.2, 12, 1, true), '#ffcf33', { x: 0.3, y: 27.6 }));
+  for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2; P.push(part(new THREE.ConeGeometry(1.1, 3, 6), '#ffcf33', { x: 0.3 + Math.cos(a) * 4.4, y: 30.4, z: Math.sin(a) * 4.4 })); }
+  P.push(part(sph(1.1, 8, 6), '#d42c2c', { x: 4.8, y: 27.8 }));
+  P.push(part(box(1.2, 16, 12), '#9a1f1f', { x: -6.6, y: 12.5, rz: 0.12 }));   // cape
+  return merge(P);
 }
 
 // ---------------------------------------------------------------- vehicle & building models
 function tankHullGeo(team, r) {
-  const c = TEAM[team], dk = shadeHex(c, -0.22);
-  return merge([
-    part(box(2.1 * r, 0.55 * r, 1.15 * r), c, { y: 0.55 * r }),
-    part(box(2.35 * r, 0.5 * r, 0.4 * r), dk, { y: 0.28 * r, z: 0.74 * r }),
-    part(box(2.35 * r, 0.5 * r, 0.4 * r), dk, { y: 0.28 * r, z: -0.74 * r }),
-    part(box(0.3 * r, 0.2 * r, 0.9 * r), dk, { x: 0.9 * r, y: 0.86 * r }),
-  ]);
+  const c = TEAM[team], dk = shadeHex(c, -0.22), P = [
+    part(box(1.9 * r, 0.45 * r, 1.1 * r), c, { y: 0.62 * r }),
+    part(box(0.45 * r, 0.32 * r, 1.1 * r), c, { x: 1.05 * r, y: 0.58 * r, rz: -0.55 }),       // sloped glacis
+    part(box(2.2 * r, 0.08 * r, 0.42 * r), dk, { y: 0.86 * r, z: 0.75 * r }),                   // fenders
+    part(box(2.2 * r, 0.08 * r, 0.42 * r), dk, { y: 0.86 * r, z: -0.75 * r }),
+    part(box(0.25 * r, 0.18 * r, 0.25 * r), dk, { x: -0.95 * r, y: 0.94 * r, z: 0.35 * r }),    // exhausts
+    part(box(0.25 * r, 0.18 * r, 0.25 * r), dk, { x: -0.95 * r, y: 0.94 * r, z: -0.35 * r }),
+  ];
+  for (const zs of [1, -1]) {
+    P.push(part(box(2.3 * r, 0.12 * r, 0.38 * r), '#2c2c26', { y: 0.74 * r, z: zs * 0.75 * r }));   // track top
+    P.push(part(box(2.3 * r, 0.12 * r, 0.38 * r), '#2c2c26', { y: 0.06 * r, z: zs * 0.75 * r }));   // track bottom
+    for (let i = 0; i < 5; i++) P.push(part(cyl(0.24 * r, 0.24 * r, 0.36 * r, 14), dk, { x: (-0.85 + i * 0.425) * r, y: 0.3 * r, z: zs * 0.75 * r, rx: Math.PI / 2 }));
+    P.push(part(cyl(0.2 * r, 0.2 * r, 0.36 * r, 12), dk, { x: 1.1 * r, y: 0.5 * r, z: zs * 0.75 * r, rx: Math.PI / 2 }));   // drive sprocket
+    P.push(part(cyl(0.2 * r, 0.2 * r, 0.36 * r, 12), dk, { x: -1.1 * r, y: 0.5 * r, z: zs * 0.75 * r, rx: Math.PI / 2 }));
+  }
+  return merge(P);
 }
 function tankTurretGeo(team, r) {
   const c = TEAM[team], dk = shadeHex(c, -0.1);
   return merge([
-    part(cyl(0.5 * r, 0.6 * r, 0.38 * r, 18), c, { y: 1.0 * r }),
-    part(cyl(0.09 * r, 0.09 * r, 1.6 * r, 10), dk, { x: 0.95 * r, y: 1.02 * r, rz: Math.PI / 2 }),
-    part(cyl(0.18 * r, 0.18 * r, 0.12 * r, 10), dk, { x: -0.1 * r, y: 1.24 * r }),
+    part(lathe([[0.62 * r, 0], [0.6 * r, 0.28 * r], [0.45 * r, 0.42 * r], [0, 0.44 * r]], 24), c, { y: 0.84 * r }),
+    part(box(0.3 * r, 0.3 * r, 0.42 * r), dk, { x: 0.58 * r, y: 1.02 * r }),                           // mantlet
+    part(cyl(0.085 * r, 0.1 * r, 1.5 * r, 12), dk, { x: 1.4 * r, y: 1.02 * r, rz: Math.PI / 2 }),
+    part(cyl(0.13 * r, 0.13 * r, 0.22 * r, 12), dk, { x: 2.1 * r, y: 1.02 * r, rz: Math.PI / 2 }),     // muzzle brake
+    part(cyl(0.2 * r, 0.2 * r, 0.1 * r, 14), dk, { x: -0.15 * r, y: 1.3 * r, z: 0.18 * r }),            // hatch
+    part(cyl(0.012 * r, 0.012 * r, 1.1 * r, 4), '#222', { x: -0.4 * r, y: 1.75 * r, z: -0.3 * r }),     // antenna
+    part(box(0.35 * r, 0.06 * r, 0.06 * r), '#222', { x: 0.05 * r, y: 1.38 * r, z: -0.22 * r }),        // roof MG
   ]);
 }
 function jeepGeo(team, r) {
   const c = TEAM[team], dk = shadeHex(c, -0.12), P = [
-    part(box(2.2 * r, 0.42 * r, 1.25 * r), c, { y: 0.62 * r }),
-    part(box(0.7 * r, 0.22 * r, 1.15 * r), dk, { x: 0.72 * r, y: 0.9 * r }),
-    part(box(0.08 * r, 0.42 * r, 1.15 * r), '#9fc6dd', { x: 0.36 * r, y: 1.06 * r }),
-    part(box(0.45 * r, 0.3 * r, 0.42 * r), dk, { x: -0.15 * r, y: 0.98 * r, z: 0.3 * r }),
-    part(box(0.45 * r, 0.3 * r, 0.42 * r), dk, { x: -0.15 * r, y: 0.98 * r, z: -0.3 * r }),
+    part(box(2.0 * r, 0.36 * r, 1.12 * r), c, { y: 0.66 * r }),
+    part(box(0.75 * r, 0.24 * r, 1.0 * r), c, { x: 0.68 * r, y: 0.94 * r }),                           // hood
+    part(box(0.06 * r, 0.24 * r, 0.8 * r), '#333', { x: 1.06 * r, y: 0.8 * r }),                        // grille
+    part(box(0.06 * r, 0.46 * r, 1.05 * r), '#9fc6dd', { x: 0.3 * r, y: 1.1 * r }),                     // windshield
+    part(box(0.42 * r, 0.28 * r, 0.4 * r), dk, { x: -0.2 * r, y: 0.98 * r, z: 0.28 * r }),              // seats
+    part(box(0.42 * r, 0.28 * r, 0.4 * r), dk, { x: -0.2 * r, y: 0.98 * r, z: -0.28 * r }),
+    part(new THREE.TorusGeometry(0.12 * r, 0.025 * r, 6, 14), '#222', { x: 0.18 * r, y: 1.06 * r, z: 0.26 * r, ry: Math.PI / 2, rz: 0.5 }), // steering wheel
+    part(cyl(0.3 * r, 0.3 * r, 0.16 * r, 16), '#1d1d1d', { x: -1.08 * r, y: 0.78 * r, rz: Math.PI / 2 }), // spare tire
+    part(cyl(0.012 * r, 0.012 * r, 1.2 * r, 4), '#222', { x: -0.9 * r, y: 1.3 * r, z: -0.45 * r }),      // antenna
   ];
-  for (const [wx, wz] of [[0.72, 0.66], [0.72, -0.66], [-0.72, 0.66], [-0.72, -0.66]]) P.push(part(cyl(0.34 * r, 0.34 * r, 0.25 * r, 16), '#1d1d1d', { x: wx * r, y: 0.34 * r, z: wz * r, rx: Math.PI / 2 }));
+  for (const z of [0.38, -0.38]) P.push(part(sph(0.08 * r, 8, 6), '#fff6c0', { x: 1.05 * r, y: 0.95 * r, z: z * r }));   // headlights
+  for (const [wx, wz] of [[0.68, 0.62], [0.68, -0.62], [-0.68, 0.62], [-0.68, -0.62]]) {
+    P.push(part(cyl(0.34 * r, 0.34 * r, 0.24 * r, 18), '#1d1d1d', { x: wx * r, y: 0.34 * r, z: wz * r, rx: Math.PI / 2 }));
+    P.push(part(cyl(0.16 * r, 0.16 * r, 0.26 * r, 10), dk, { x: wx * r, y: 0.34 * r, z: wz * r, rx: Math.PI / 2 }));
+    P.push(part(box(0.75 * r, 0.06 * r, 0.3 * r), c, { x: wx * r, y: 0.72 * r, z: wz * r * 1.05 }));     // fenders
+  }
   return merge(P);
 }
-function jeepGunGeo(r) { return merge([part(cyl(0.06 * r, 0.06 * r, 0.5 * r, 8), '#2a2a2a', { x: -0.55 * r, y: 1.1 * r }), part(box(1.1 * r, 0.12 * r, 0.12 * r), '#2a2a2a', { x: -0.15 * r, y: 1.38 * r })]); }
+function jeepGunGeo(r) { return merge([part(cyl(0.05 * r, 0.06 * r, 0.55 * r, 8), '#2a2a2a', { x: -0.55 * r, y: 1.12 * r }), part(box(0.7 * r, 0.14 * r, 0.12 * r), '#2a2a2a', { x: -0.3 * r, y: 1.42 * r }), part(cyl(0.035 * r, 0.035 * r, 0.6 * r, 6), '#2a2a2a', { x: 0.3 * r, y: 1.44 * r, rz: Math.PI / 2 }), part(box(0.18 * r, 0.2 * r, 0.16 * r), '#4a4a3a', { x: -0.4 * r, y: 1.32 * r, z: 0.14 * r })]); }
 function heliGeo(team, r) {
   const c = TEAM[team], dk = shadeHex(c, -0.15);
   return merge([
-    part(sph(r, 18, 12), c, { sx: 1, sy: 0.62, sz: 0.62 }),
-    part(sph(0.45 * r, 12, 8), '#9fc6dd', { x: 0.55 * r, y: 0.12 * r, sx: 0.8, sy: 0.7, sz: 0.9 }),
-    part(box(1.3 * r, 0.16 * r, 0.16 * r), c, { x: -1.4 * r, y: 0.1 * r }),
-    part(box(0.1 * r, 0.6 * r, 0.06 * r), dk, { x: -2.05 * r, y: 0.3 * r }),
-    part(box(1.3 * r, 0.05 * r, 0.05 * r), '#2b2b2b', { y: -0.62 * r, z: 0.45 * r }),
-    part(box(1.3 * r, 0.05 * r, 0.05 * r), '#2b2b2b', { y: -0.62 * r, z: -0.45 * r }),
-    part(box(0.6 * r, 0.12 * r, 0.12 * r), '#333', { y: -0.1 * r, z: 0.7 * r }),
-    part(box(0.6 * r, 0.12 * r, 0.12 * r), '#333', { y: -0.1 * r, z: -0.7 * r }),
+    part(sph(r, 22, 14), c, { sx: 1, sy: 0.62, sz: 0.62 }),
+    part(sph(0.45 * r, 14, 10), '#9fc6dd', { x: 0.55 * r, y: 0.12 * r, sx: 0.8, sy: 0.7, sz: 0.9 }),
+    part(cyl(0.16 * r, 0.08 * r, 1.4 * r, 10), c, { x: -1.45 * r, y: 0.1 * r, rz: Math.PI / 2 }),       // tapered tail boom
+    part(box(0.1 * r, 0.6 * r, 0.06 * r), dk, { x: -2.1 * r, y: 0.32 * r }),
+    part(box(0.3 * r, 0.05 * r, 0.6 * r), dk, { x: -2.0 * r, y: 0.12 * r }),                            // stabilizer
+    part(cyl(0.3 * r, 0.3 * r, 0.02 * r, 16), '#333', { x: -2.1 * r, y: 0.32 * r, z: 0.07 * r, rx: Math.PI / 2 }), // tail rotor
+    part(box(1.4 * r, 0.05 * r, 0.05 * r), '#2b2b2b', { y: -0.66 * r, z: 0.45 * r }),
+    part(box(1.4 * r, 0.05 * r, 0.05 * r), '#2b2b2b', { y: -0.66 * r, z: -0.45 * r }),
+    ...[0.4, -0.3].flatMap(x => [0.45, -0.45].map(z => part(box(0.04 * r, 0.3 * r, 0.04 * r), '#2b2b2b', { x: x * r, y: -0.5 * r, z: z * r }))), // skid struts
+    part(cyl(0.12 * r, 0.12 * r, 0.6 * r, 10), '#333', { y: -0.1 * r, z: 0.72 * r, rz: Math.PI / 2 }),  // rocket pods
+    part(cyl(0.12 * r, 0.12 * r, 0.6 * r, 10), '#333', { y: -0.1 * r, z: -0.72 * r, rz: Math.PI / 2 }),
+    part(cyl(0.12 * r, 0.16 * r, 0.25 * r, 12), dk, { y: 0.62 * r }),                                   // rotor mast
   ]);
 }
-function rotorGeo(r) { return merge([part(box(3.2 * r, 0.06 * r, 0.12 * r), '#222'), part(box(0.12 * r, 0.06 * r, 3.2 * r), '#222'), part(cyl(0.1 * r, 0.1 * r, 0.3 * r, 8), '#222', { y: -0.15 * r })]); }
+function rotorGeo(r) { return merge([part(box(3.2 * r, 0.04 * r, 0.14 * r), '#222'), part(box(0.14 * r, 0.04 * r, 3.2 * r), '#222')]); }
+const blurMat = new THREE.MeshBasicMaterial({ color: '#202020', transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide });
+function planeGeo(team, r) {
+  const c = TEAM[team], dk = shadeHex(c, -0.15), light = shadeHex(c, 0.08);
+  const P = [
+    part(cap(0.28 * r, 2.0 * r), c, { rz: Math.PI / 2 }),                                               // fuselage
+    part(cyl(0.28 * r, 0.12 * r, 0.6 * r, 14), c, { x: -1.4 * r, rz: Math.PI / 2 }),                    // tapering tail
+    part(box(0.7 * r, 0.07 * r, 3.0 * r), light, { x: 0.1 * r, y: -0.06 * r }),                         // wings
+    part(box(0.35 * r, 0.05 * r, 1.1 * r), dk, { x: -1.55 * r, y: 0.04 * r }),                           // tailplane
+    part(box(0.38 * r, 0.42 * r, 0.05 * r), dk, { x: -1.55 * r, y: 0.24 * r }),                          // fin
+    part(sph(0.26 * r, 14, 10), '#9fc6dd', { x: 0.35 * r, y: 0.2 * r, sx: 1.6, sy: 0.9, sz: 0.85 }),    // canopy
+    part(cyl(0.16 * r, 0.22 * r, 0.25 * r, 14), dk, { x: 1.3 * r, rz: Math.PI / 2 }),                    // cowling
+    part(new THREE.ConeGeometry(0.1 * r, 0.22 * r, 10), '#ddd', { x: 1.5 * r, rz: -Math.PI / 2 }),      // spinner
+  ];
+  for (const z of [1, -1]) {
+    P.push(part(cyl(0.12 * r, 0.12 * r, 0.02 * r, 14), team === 'g' ? '#f4f4f4' : '#a33', { x: 0.1 * r, y: -0.01 * r, z: z * 1.05 * r }));   // roundels
+    P.push(part(cyl(0.05 * r, 0.05 * r, 0.4 * r, 8), dk, { x: 0.35 * r, y: -0.1 * r, z: z * 0.6 * r, rz: Math.PI / 2 }));  // wing guns
+  }
+  return merge(P);
+}
 function bunkerGeo(team, r) {
   const g = team === 'g', bag = g ? '#7a8a55' : '#a8956a', wall = g ? '#5d7f3c' : '#b59866', P = [];
-  for (let layer = 0; layer < 2; layer++) for (let i = 0; i < 16; i++) {
-    const a = (i + layer * 0.5) / 16 * Math.PI * 2;
-    P.push(part(cap(4.5, 9), bag, { x: Math.cos(a) * r, y: 4.5 + layer * 8, z: Math.sin(a) * r, rz: Math.PI / 2, ry: -a + Math.PI / 2 }));
+  const n = Math.round(r / 2.6);
+  for (let layer = 0; layer < 2; layer++) for (let i = 0; i < n; i++) {
+    const a = (i + layer * 0.5) / n * Math.PI * 2;
+    P.push(part(cap(4.5, 8), shadeHex(bag, (i % 3 - 1) * 0.03), { x: Math.cos(a) * r, y: 4.5 + layer * 8, z: Math.sin(a) * r, rz: Math.PI / 2, ry: -a + Math.PI / 2, sy: 0.8 }));
   }
   P.push(part(cyl(r * 0.72, r * 0.78, 24, 6), wall, { y: 12 }));
   P.push(part(cyl(r * 0.6, r * 0.72, 6, 6), shadeHex(wall, 0.08), { y: 27 }));
+  for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2 + Math.PI / 6; P.push(part(box(3, 4, r * 0.4), '#1a1a1a', { x: Math.cos(a) * r * 0.74, y: 17, z: Math.sin(a) * r * 0.74, ry: -a })); } // firing slits
   P.push(part(cyl(1, 1, 52, 8), '#dddddd', { x: -r * 0.2, y: 30 }));
   P.push(part(box(18, 11, 1), g ? '#3fae2a' : '#d9b56d', { x: -r * 0.2 + 9, y: 50 }));
   return merge(P);
 }
-function bunkerGunGeo(r) { return merge([part(box(r * 0.65, 4, 4), '#222', { x: r * 0.55, y: 20 })]); }
+function bunkerGunGeo(r) { return merge([part(cyl(1.8, 2, r * 0.7, 10), '#222', { x: r * 0.55, y: 20, rz: Math.PI / 2 })]); }
 function outpostGeo() {
   const P = [];
   for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; P.push(part(cap(4.5, 8), i % 2 ? '#7a8a55' : '#6c7b4a', { x: Math.cos(a) * 50, y: 4.5, z: Math.sin(a) * 50, rz: Math.PI / 2, ry: -a + Math.PI / 2 })); }
@@ -334,7 +437,21 @@ function place(x, h, z, yaw, s = 1, sy = s) { Q.setFromAxisAngle(YAXIS, -yaw); r
 const WHITE = new THREE.Color(1, 1, 1), FLASH = new THREE.Color(2.6, 2.6, 2.6), TMP = new THREE.Color();
 
 // ---------------------------------------------------------------- level (ground + static props)
-let curG = null, levelGroup = null, dynObs = [], groundTex = null;
+let curG = null, levelGroup = null, dynObs = [], groundTex = null, bridges = new Set();
+function addDynObstacle(o) {
+  o._r3d = true;
+  const r = obstacleParts(o);
+  if (!r.parts) return;
+  const m = new THREE.Mesh(merge(r.parts), r.glossy ? plastic : matte); m.castShadow = m.receiveShadow = true;
+  levelGroup.add(m); dynObs.push({ o, mesh: m });
+}
+function bridgeMesh(sg) {
+  const cx = sg.x + sg.w / 2, cz = sg.y + sg.h / 2, L = sg.w + 60, P = [];
+  for (let x = -L / 2; x < L / 2; x += 14) P.push(part(box(12, 4, 82), shadeHex('#9a6b3c', ((x / 14) % 3) * 0.03), { x: cx + x + 6, y: 6, z: cz }));
+  for (const z of [-42, 42]) { P.push(part(box(L, 4, 4), '#6e4720', { x: cx, y: 14, z: cz + z })); for (let x = -L / 2; x <= L / 2; x += 40) P.push(part(box(4, 12, 4), '#6e4720', { x: cx + x, y: 9, z: cz + z })); }
+  for (const x of [-sg.w / 2 + 10, sg.w / 2 - 10]) P.push(part(cyl(5, 5, 14, 10), '#5a3a1e', { x: cx + x, y: 1, z: cz }));
+  const m = new THREE.Mesh(merge(P), matte); m.castShadow = m.receiveShadow = true; return m;
+}
 const THEME_LIGHT = {
   grass: [0xfff0d8, 2.8, 1.15], tile: [0xfff6ea, 2.5, 1.3], bedroom: [0xffe8c8, 2.6, 1.2], concrete: [0xf4f4ff, 2.4, 1.2],
   desert: [0xffe0b0, 3.1, 1.05], mountain: [0xfff2e0, 2.7, 1.1], tundra: [0xf0f4ff, 2.4, 1.25], arctic: [0xeef6ff, 2.2, 1.45],
@@ -359,7 +476,15 @@ function buildLevel(G) {
   rim.rotation.x = -Math.PI / 2; rim.position.set(W / 2, -2, H / 2); levelGroup.add(rim);
   // static obstacles merged into two meshes; destructible ones kept separate so they can disappear
   const gloss = [], mat = [];
+  if (G.river) for (const sg of G.river.segs) {
+    const cx = sg.x + sg.w / 2, cz = sg.y + sg.h / 2;
+    const water = new THREE.Mesh(new THREE.BoxGeometry(sg.w, 2, sg.h + 1), sg.ford ? shallowMat : waterMat);
+    water.position.set(cx, 1, cz); water.receiveShadow = true; levelGroup.add(water);
+    if (sg.ford) { const stones = []; for (let i = 0; i < 9; i++) stones.push(part(new THREE.DodecahedronGeometry(1, 0), '#8d8a80', { x: sg.x + 15 + (i * 53) % (sg.w - 30), y: 2, z: sg.y + 20 + (i * 37) % (sg.h - 40), sx: 10, sy: 4, sz: 9 })); const m = new THREE.Mesh(merge(stones), matte); m.receiveShadow = m.castShadow = true; levelGroup.add(m); }
+  }
   for (const o of G.obs) {
+    o._r3d = true;
+    if (o.kind === 'water') continue;
     const r = obstacleParts(o);
     if (r.ice) { const m = new THREE.Mesh(new THREE.BoxGeometry(o.w, 34, o.h), iceMat); m.position.set(o.x + o.w / 2, 17, o.y + o.h / 2); m.castShadow = true; levelGroup.add(m); dynObs.push({ o, mesh: m }); continue; }
     if (o.hp != null) { const m = new THREE.Mesh(merge(r.parts), r.glossy ? plastic : matte); m.castShadow = m.receiveShadow = true; levelGroup.add(m); dynObs.push({ o, mesh: m }); continue; }
@@ -369,6 +494,7 @@ function buildLevel(G) {
     if (!parts.length) continue;
     const m = new THREE.Mesh(merge(parts), material); m.castShadow = m.receiveShadow = true; levelGroup.add(m);
   }
+  bridges = new Set();
   const [col, inten, hemiI] = THEME_LIGHT[G.L.theme] || THEME_LIGHT.grass;
   sun.color.set(col); sun.intensity = inten; hemi.intensity = hemiI;
   curG = G;
@@ -396,10 +522,13 @@ function render(dt) {
   camera.position.set(tx, Math.sin(pitch) * dist, tz + Math.cos(pitch) * dist);
   camera.lookAt(tx, 0, tz);
   sun.position.set(tx - 700, 1500, tz - 500); sun.target.position.set(tx, 0, tz); sun.target.updateMatrixWorld();
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const near = (x, y, m = 0) => Math.abs(x - G.cam.x) < 1500 + m && Math.abs(y - G.cam.y) < 1300 + m;
 
-  // destroyed obstacles
+  // destroyed / newly built obstacles and bridges
   for (let i = dynObs.length - 1; i >= 0; i--) if (dynObs[i].o.dead) { levelGroup.remove(dynObs[i].mesh); dynObs[i].mesh.geometry.dispose(); dynObs.splice(i, 1); }
+  for (const o of G.obs) if (!o._r3d) addDynObstacle(o);
+  if (G.river) for (const sg of G.river.segs) if (sg.bridged && !bridges.has(sg)) { bridges.add(sg); levelGroup.add(bridgeMesh(sg)); }
 
   // units
   const S = G.sarge;
@@ -408,8 +537,7 @@ function render(dt) {
     const flash = u.flash > 0 ? FLASH : WHITE;
     const T = u.T;
     if (T.building) {
-      const key = u.type === 'hq' ? 'hq' : 'bunker';
-      pool(key, () => bunkerGeo(u.team, u.r), matte).add(place(u.x, 0, u.y, 0), flash);
+      pool(u.type, () => bunkerGeo(u.team, u.r), matte).add(place(u.x, 0, u.y, 0), flash);
       pool('bgun', () => bunkerGunGeo(u.r)).add(place(u.x, 0, u.y, u.ta || 0), WHITE);
     } else if (u.type === 'boss') {
       pool('boss', bossGeo).add(place(u.x, 0, u.y, u.a, 3.2), flash);
@@ -419,6 +547,15 @@ function render(dt) {
       if (k === 'tank') {
         pool('tank' + tm, () => tankHullGeo(tm, T.r)).add(place(u.x, 0, u.y, u.a), flash);
         pool('turret' + tm, () => tankTurretGeo(tm, T.r)).add(place(u.x, 0, u.y, u.ta), flash);
+      } else if (k === 'plane') {
+        // bank into turns: roll follows the turn rate
+        const prev = u._pa ?? u.a; u._pa = u.a;
+        const turn = (((u.a - prev + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+        u._roll = (u._roll || 0) * 0.9 + clamp(turn / Math.max(dt, 1e-3) * 0.35, -0.9, 0.9) * 0.1;
+        Q.setFromEuler(_e.set(u._roll, -u.a, 0, 'YXZ'));
+        pool('plane' + tm, () => planeGeo(tm, T.r)).add(M.compose(POS.set(u.x, 115, u.y), Q, SCL.set(1.2, 1.2, 1.2)), flash);
+        const nose = 1.5 * T.r * 1.2;
+        pool('propblur', () => merge([part(cyl(0.85 * T.r, 0.85 * T.r, 0.01, 28), '#fff', { rz: Math.PI / 2 })]), blurMat, { shadow: false }).add(M.compose(POS.set(u.x + Math.cos(u.a) * nose, 115, u.y + Math.sin(u.a) * nose), Q, SCL.set(1.2, 1.2, 1.2)), WHITE);
       } else if (k === 'jeep') {
         pool('jeep' + tm, () => jeepGeo(tm, T.r)).add(place(u.x, 0, u.y, u.a), flash);
         pool('jgun', () => jeepGunGeo(T.r)).add(place(u.x, 0, u.y, u.ta), WHITE);
@@ -426,6 +563,7 @@ function render(dt) {
         const alt = 85 + Math.sin(t * 2 + u.id) * 4;
         pool('heli' + tm, () => heliGeo(tm, T.r)).add(place(u.x, alt, u.y, u.a), flash);
         pool('rotor', () => rotorGeo(T.r), plastic, { shadow: true }).add(place(u.x, alt + T.r * 0.72, u.y, u.anim * 30), WHITE);
+        pool('rotorblur', () => merge([part(cyl(1.6 * T.r, 1.6 * T.r, 0.01, 32), '#fff')]), blurMat, { shadow: false }).add(place(u.x, alt + T.r * 0.7, u.y, 0), WHITE);
       }
     } else {
       const w = u === S ? SARGE_SLOTS[u.slot].w : T.weapon, key = `${u.team}|${w}|${u === S ? 1 : 0}`;
@@ -469,6 +607,7 @@ function render(dt) {
     else if (b.kind === 'rocket' || b.kind === 'shell') pool('rocket', ROCKET).add(place(b.x, 18, b.y, yaw), WHITE);
     else if (b.kind === 'flame') { const k = 1 - b.life / b.maxLife; pool('flame', BALL, glow, { shadow: false }).add(place(b.x, 14, b.y, 0, 4 + k * 13), TMP.setRGB(1, 0.75 - k * 0.5, 0.2)); }
     else if (b.kind === 'orb') pool('orb', BALL, glow, { shadow: false }).add(place(b.x, 18, b.y, 0, 6), TMP.set('#ffcf33'));
+    else if (b.kind === 'bomb') pool('bomb', () => merge([part(cap(2.6, 7), '#3a3a3a', { rz: Math.PI / 2 }), part(box(1, 5, 5), '#3a3a3a', { x: -6 })])).add(place(b.x, 4 + (b.z || 0), b.y, yaw), WHITE);
     else if (b.kind === 'grenade') pool('grenade', () => merge([part(sph(4, 10, 8), '#3c5a26')])).add(place(b.x, 6 + (b.z || 0), b.y, t * 8), WHITE);
   }
 
@@ -480,6 +619,25 @@ function render(dt) {
     else if (p.type === 'fire' || p.type === 'flash' || p.type === 'spark' || p.type === 'plus') pool('fire', BALL, glow, { shadow: false }).add(place(p.x, 12 + (1 - k) * 18, p.y, 0, p.size * (p.type === 'fire' ? 0.5 + k * 0.5 : 0.6)), TMP.set(p.col));
     else if (p.type === 'debris') pool('debris', CUBE, matte).add(M.compose(POS.set(p.x, 4 + Math.sin(k * Math.PI) * 20, p.y), Q.setFromAxisAngle(YAXIS, k * 9), SCL.setScalar(p.size)), TMP.set(p.col));
     else if (p.type === 'ring') pool('ring', RING, glow, { shadow: false }).add(M.compose(POS.set(p.x, 4, p.y), Q.identity(), SCL.setScalar(Math.max(1, p.size * (1.1 - k * 0.8)))), TMP.set(p.col).multiplyScalar(k * 0.7));
+  }
+
+  // blueprints (ghosts) and the build-mode placement preview
+  const ghost = (id, x, y, vert, col) => {
+    const k = 'ghost_' + id;
+    if (id === 'wall') pool(k, () => merge([part(box(1, 1, 1), '#fff')]), ghostMat, { shadow: false }).add(M.compose(POS.set(x, 14, y), Q.identity(), SCL.set(vert ? 28 : 110, 28, vert ? 110 : 28)), col);
+    else if (id === 'pill') pool(k, () => merge([part(cyl(34, 38, 30, 6), '#fff', { y: 15 })]), ghostMat, { shadow: false }).add(place(x, 0, y, 0), col);
+    else if (id === 'mines') pool(k, () => merge([part(cyl(55, 55, 3, 24), '#fff', { y: 1.5 })]), ghostMat, { shadow: false }).add(place(x, 0, y, 0), col);
+    else pool(k, () => merge([part(box(210, 8, 82), '#fff', { y: 6 })]), ghostMat, { shadow: false }).add(place(x, 0, y, 0), col);
+  };
+  const OK = TMP.clone().set('#8fd8ff'), BAD = new THREE.Color('#ff6a55');
+  for (const j of G.jobs) ghost(j.id, j.x, j.y, j.vert, OK);
+  if (G.buildMode) {
+    const pp = buildPreviewPoint();
+    if (pp) {
+      const S = STRUCTS[G.buildIdx], from = G.sarge.driving || G.sarge;
+      let { x, y } = pp; const seg = S.id === 'bridge' && riverSegAt(x, y); if (seg) { x = seg.x + seg.w / 2; y = seg.y + seg.h / 2; }
+      ghost(S.id, x, y, Math.abs(pp.x - from.x) > Math.abs(pp.y - from.y), buildCheck(S, pp.x, pp.y) ? BAD : OK);
+    }
   }
 
   for (const p of pools.values()) p.end();
@@ -514,7 +672,7 @@ function overlay(c) {
   if (!S.dead) { const me = S.driving || S; ring(me.x, me.y, me.r + 6, 'rgba(255,230,120,0.9)', 2.5); }
   for (const u of G.units) {
     if (u.dead || u.type === 'boss' || !(u.hp < u.maxHp || u.T.building)) continue;
-    const h = u.T.building ? 70 : u.T.air ? 120 : u.T.vehicle ? 40 : 34;
+    const h = u.T.building ? 70 : u.T.kind === 'plane' ? 150 : u.T.air ? 120 : u.T.vehicle ? 40 : 34;
     const p = project(u.x, h, u.y); if (!p) continue;
     bar(p, u.T.building ? 70 : Math.max(22, u.r * 2.2), u.hp / u.maxHp, u.team === 'g' ? '#6fd13a' : '#e8b44a');
   }
@@ -522,6 +680,7 @@ function overlay(c) {
     const v = nearestFreeVehicle(S, 60);
     if (v) { const p = project(v.x, 50, v.y); if (p) txt(touchMode ? 'Tap DRIVE' : padMode ? 'Y: drive' : 'E: drive', p.x, p.y, 13, '#ffe9a0', 'center'); }
   }
+  for (const j of G.jobs) { const p = project(j.x, 40, j.y); if (p) bar(p, 60, j.progress / j.need, '#ffd76a'); }
   for (const tx of G.texts) { const p = project(tx.x, 36, tx.y); if (!p) continue; c.globalAlpha = Math.min(1, tx.t * 2); txt(tx.txt, p.x, p.y, 14, tx.col, 'center'); }
   c.globalAlpha = 1;
   if (mouse.drag) {

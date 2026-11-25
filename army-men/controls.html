@@ -130,10 +130,26 @@
           <tr><td>ORDER, then tap</td><td>Send the squad / attack a target</td></tr>
           <tr><td>FOLLOW · GUARD</td><td>Squad follows Sarge / holds position</td></tr>
           <tr><td>DRIVE · EXIT</td><td>Get in or out of a vehicle</td></tr>
+          <tr><td>BUILD</td><td>Pick a structure, then tap the ground</td></tr>
           <tr><td>Minimap</td><td>Tap to send the squad there</td></tr>
         </table>
       </div>
     </div>
+  </section>
+
+  <section aria-labelledby="build">
+    <h2 id="build">Engineering</h2>
+    <p class="lede">Recruit at least one Engineer, open the build menu (<kbd>Tab</kbd>, the <strong>BUILD</strong> button, or <kbd>L3</kbd> on a controller), pick a structure and place it. Plastic is paid when you place the blueprint; the nearest free Engineer walks over and builds it.</p>
+    <div class="plate scroll">
+      <table style="min-width:620px">
+        <tr><th>Key</th><th>Structure</th><th>Cost</th><th>Build time</th><th>What it does</th></tr>
+        <tr><td><kbd>1</kbd></td><td>Sandbag wall</td><td class="num">25</td><td class="num">3 s</td><td>Blocks movement and bullets; faces the direction you placed it from</td></tr>
+        <tr><td><kbd>2</kbd></td><td>Pillbox</td><td class="num">120</td><td class="num">8 s</td><td>Green bunker with a machine gun that defends on its own</td></tr>
+        <tr><td><kbd>3</kbd></td><td>Minefield</td><td class="num">60</td><td class="num">4 s</td><td>Seven mines in a ring; they arm after a second</td></tr>
+        <tr><td><kbd>4</kbd></td><td>Bridge</td><td class="num">50</td><td class="num">6 s</td><td>Spans a river so ground troops and vehicles can cross (tan troops use it too)</td></tr>
+      </table>
+    </div>
+    <p class="lede">Rivers run through Operation Backyard, Mountain Pass and Tundra Push. Each has two shallow fords; bridges add more crossings. Shots, planes and choppers pass over water.</p>
   </section>
 
   <section aria-labelledby="arsenal">
@@ -169,6 +185,8 @@
         <tr><td><kbd>J</kbd></td><td>Jeep <span class="tag">drivable</span></td><td class="num">150</td><td>Fast, mounted machine gun, runs over infantry</td></tr>
         <tr><td><kbd>K</kbd></td><td>Tank <span class="tag">drivable</span></td><td class="num">300</td><td>Heavy armor and a cannon</td></tr>
         <tr><td><kbd>L</kbd></td><td>Chopper <span class="tag">drivable</span></td><td class="num">380</td><td>Flies over obstacles, fires rockets</td></tr>
+        <tr><td><kbd>R</kbd></td><td>Engineer</td><td class="num">70</td><td>Builds what you place from the build menu; carries a light SMG</td></tr>
+        <tr><td><kbd>O</kbd></td><td>Fighter plane <span class="tag">drivable</span></td><td class="num">420</td><td>Fast; strafes with wing guns and bombs buildings and vehicles it flies over. Never stops moving</td></tr>
       </table>
     </div>
   </section>
@@ -250,6 +268,7 @@ const MAP = {
   Space: ['squad', 'Squad: follow me'], G: ['squad', 'Guard'], Q: ['squad', 'Select all'], Shift: ['squad', '+drag select'],
   Z: ['recruit', 'Rifleman'], X: ['recruit', 'Bazooka'], C: ['recruit', 'Flamer'], V: ['recruit', 'Medic'],
   B: ['recruit', 'Sniper'], N: ['recruit', 'Mortar'], J: ['recruit', 'Jeep'], K: ['recruit', 'Tank'], L: ['recruit', 'Chopper'],
+  R: ['recruit', 'Engineer'], O: ['recruit', 'Fighter'], Tab: ['squad', 'Build menu'], T: ['system', '3D blur'],
   Enter: ['system', 'Start'],
 };
 const ROWS = [
@@ -353,6 +372,7 @@ for (const k in CAT) {
     [262, 200, 'Left stick', 'Move', 40, 200],
     [330, 291, 'D-pad', 'Pick a recruit (title: menu)', 40, 300],
     [410, 210, 'View', 'Help · title: Field Manual', 40, 400],
+    [290, 230, 'L3 (press stick)', 'Build menu', 40, 250],
   ];
   const R = [
     [585, 89, 'RT', 'Fire', 860, 40],
