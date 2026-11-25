@@ -21,7 +21,11 @@
 
 const cvs = document.getElementById('c');
 const ctx = cvs.getContext('2d');
-let VW = 0, VH = 0, DPR = 1, Z = 1;
+let VW = 0, VH = 0, DPR = 1, Z = 1, HS = 1;
+// touch play: twin virtual sticks + tap buttons
+let touchMode = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+let moveStick = null, aimStick = null, commandMode = false;
+const STICK_R = 60;
 function resize() {
   DPR = Math.min(2, window.devicePixelRatio || 1);
   VW = innerWidth; VH = innerHeight;
@@ -164,6 +168,7 @@ cvs.addEventListener('contextmenu', e => e.preventDefault());
 cvs.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 cvs.addEventListener('mousedown', e => {
   initAudio();
+  touchMode = false;
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (e.button === 0) {
     if (state !== 'play') { onClickOverlay(); return; }
@@ -186,6 +191,45 @@ cvs.addEventListener('wheel', e => {
   e.preventDefault();
   cycleWeapon(e.deltaY > 0 ? 1 : -1);
 }, { passive: false });
+
+// ---- touch ----
+cvs.addEventListener('touchstart', e => {
+  e.preventDefault();
+  initAudio();
+  touchMode = true;
+  for (const t of e.changedTouches) {
+    const x = t.clientX, y = t.clientY;
+    if (state !== 'play') { onClickOverlay(); return; }
+    if (hudClick(x, y)) continue;
+    if (commandMode) { orderAt((x - VW / 2) / Z + G.cam.x, (y - VH / 2) / Z + G.cam.y); commandMode = false; continue; }
+    const st = { id: t.identifier, sx: x, sy: y, x, y };
+    if (x < VW / 2) { if (!moveStick) moveStick = st; }
+    else if (!aimStick) aimStick = st;
+  }
+}, { passive: false });
+cvs.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    for (const st of [moveStick, aimStick]) if (st && st.id === t.identifier) { st.x = t.clientX; st.y = t.clientY; }
+  }
+}, { passive: false });
+function endTouch(e) {
+  e.preventDefault();
+  initAudio();
+  for (const t of e.changedTouches) {
+    if (moveStick && moveStick.id === t.identifier) moveStick = null;
+    if (aimStick && aimStick.id === t.identifier) aimStick = null;
+  }
+}
+cvs.addEventListener('touchend', endTouch, { passive: false });
+cvs.addEventListener('touchcancel', endTouch, { passive: false });
+function stickVec(st) {
+  if (!st) return null;
+  let dx = st.x - st.sx, dy = st.y - st.sy;
+  const l = Math.hypot(dx, dy);
+  if (l > STICK_R) { st.sx = st.x - dx / l * STICK_R; st.sy = st.y - dy / l * STICK_R; dx = dx / l * STICK_R; dy = dy / l * STICK_R; }
+  return { dx, dy, mag: Math.min(1, l / STICK_R) };
+}
 
 function onKeyPress(e) {
   initAudio();
@@ -255,6 +299,7 @@ function newLevel(idx) {
   G.ground = renderGround(L.theme, rng);
   G.cam.x = G.sarge.x; G.cam.y = G.sarge.y;
   banner(L.name, L.brief, 4.5);
+  commandMode = false; moveStick = aimStick = null;
   state = 'play';
 }
 
@@ -562,10 +607,13 @@ function orderHold() {
 }
 function rightClick() {
   let wx = mouse.wx, wy = mouse.wy;
-  const mm = minimapRect();
-  if (mouse.x >= mm.x && mouse.x <= mm.x + mm.w && mouse.y >= mm.y && mouse.y <= mm.y + mm.h) {
-    wx = (mouse.x - mm.x) / mm.w * WORLD_W; wy = (mouse.y - mm.y) / mm.h * WORLD_H;
+  const mm = minimapRect(), lx = mouse.x / HS, ly = mouse.y / HS;
+  if (lx >= mm.x && lx <= mm.x + mm.w && ly >= mm.y && ly <= mm.y + mm.h) {
+    wx = (lx - mm.x) / mm.w * WORLD_W; wy = (ly - mm.y) / mm.h * WORLD_H;
   }
+  orderAt(wx, wy);
+}
+function orderAt(wx, wy) {
   const units = cmdUnits();
   if (!units.length) return;
   let tgt = null;
@@ -610,7 +658,9 @@ function update(dt) {
   // camera
   const s = G.sarge;
   const focus = !s.dead ? s : G.hq;
-  const leadX = !s.dead ? (mouse.x - VW / 2) / Z * 0.22 : 0, leadY = !s.dead ? (mouse.y - VH / 2) / Z * 0.22 : 0;
+  let leadX = 0, leadY = 0;
+  if (!s.dead && !touchMode) { leadX = (mouse.x - VW / 2) / Z * 0.22; leadY = (mouse.y - VH / 2) / Z * 0.22; }
+  else if (!s.dead) { leadX = Math.cos(s.a) * 90; leadY = Math.sin(s.a) * 90; }
   G.cam.x += (focus.x + leadX - G.cam.x) * Math.min(1, dt * 6);
   G.cam.y += (focus.y + leadY - G.cam.y) * Math.min(1, dt * 6);
   const hw = VW / 2 / Z, hh = VH / 2 / Z;
@@ -714,17 +764,41 @@ function updateSarge(dt) {
   s.cd -= dt; s.flash -= dt; s.anim += dt;
   let mx = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
   let my = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
-  const l = Math.hypot(mx, my);
+  let l = Math.hypot(mx, my), spMul = 1;
+  const mv = stickVec(moveStick);
+  if (mv && mv.mag > 0.15) { mx = mv.dx; my = mv.dy; l = Math.hypot(mx, my); spMul = Math.min(1, mv.mag * 1.25); }
   s.moving = l > 0;
   if (l) {
-    const sp = TYPES.sarge.speed * (s.slot === 1 ? 0.85 : 1);
+    const sp = TYPES.sarge.speed * (s.slot === 1 ? 0.85 : 1) * spMul;
     s.x += mx / l * sp * dt; s.y += my / l * sp * dt; collideObs(s);
   }
-  s.a = Math.atan2(mouse.wy - s.y, mouse.wx - s.x);
-  if (mouse.left && s.cd <= 0) {
-    const slot = SARGE_SLOTS[s.slot];
+  const slot = SARGE_SLOTS[s.slot], W = WEAP[slot.w];
+  let aimX = mouse.wx, aimY = mouse.wy, wantFire = mouse.left;
+  if (touchMode) {
+    const av = stickVec(aimStick);
+    wantFire = false;
+    if (av && av.mag > 0.2) {
+      const a = Math.atan2(av.dy, av.dx);
+      const reach = slot.w === 's_grenade' ? W.range * clamp(av.mag, 0.3, 1) : W.range * 0.9;
+      aimX = s.x + Math.cos(a) * reach; aimY = s.y + Math.sin(a) * reach;
+      // aim assist: snap to the closest enemy inside a narrow cone
+      let best = null, bs = Infinity;
+      for (const o of G.units) {
+        if (o.dead || o.team !== 't') continue;
+        const d = dist(s, o) - o.r;
+        if (d > W.range) continue;
+        const da = Math.abs(lerpAngle(a, Math.atan2(o.y - s.y, o.x - s.x), 1) - a);
+        if (da < 0.4 && d + da * 300 < bs) { bs = d + da * 300; best = o; }
+      }
+      if (best) { aimX = best.x; aimY = best.y; }
+      wantFire = true;
+    } else if (l) { aimX = s.x + mx / l * 100; aimY = s.y + my / l * 100; }
+    else { aimX = s.x + Math.cos(s.a) * 100; aimY = s.y + Math.sin(s.a) * 100; }
+  }
+  s.a = Math.atan2(aimY - s.y, aimX - s.x);
+  if (wantFire && s.cd <= 0) {
     if (s.ammo[s.slot] > 0) {
-      fire(s, slot.w, mouse.wx, mouse.wy);
+      fire(s, slot.w, aimX, aimY);
       s.cd = WEAP[slot.w].cd; s.ammo[s.slot]--;
     } else { s.cd = 0.4; sfx('deny'); floatText(s.x, s.y - 24, 'Out of ' + slot.name + ' ammo!', '#ffd76a'); }
   }
@@ -1312,35 +1386,50 @@ function drawWorld() {
 }
 
 // ---------- HUD ----------
-function minimapRect() { const w = Math.min(220, VW * 0.22), h = w * WORLD_H / WORLD_W; return { x: VW - w - 14, y: VH - h - 14, w, h }; }
+function hudScale() { return touchMode ? clamp(Math.min(VW / 1000, VH / 560), 0.5, 1) : clamp(Math.min(VW / 1300, VH / 760), 0.7, 1); }
+// all HUD layout happens in "logical" pixels (screen px / HS)
+function minimapRect() {
+  const LW = VW / HS, LH = VH / HS;
+  if (touchMode) { const w = 170, h = w * WORLD_H / WORLD_W; return { x: LW - w - 14, y: 86, w, h }; }
+  const w = Math.min(220, LW * 0.22), h = w * WORLD_H / WORLD_W; return { x: LW - w - 14, y: LH - h - 14, w, h };
+}
 function panel(x, y, w, h) { ctx.fillStyle = 'rgba(16,22,12,0.78)'; rrect(x, y, w, h, 8); ctx.fill(); ctx.strokeStyle = 'rgba(160,200,110,0.35)'; ctx.lineWidth = 1.5; ctx.stroke(); }
 function txt(s, x, y, size, col, align = 'left', bold = true) {
   ctx.font = `${bold ? 'bold ' : ''}${size}px "Trebuchet MS",sans-serif`; ctx.textAlign = align;
   ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillText(s, x + 1, y + 1.5); ctx.fillStyle = col; ctx.fillText(s, x, y);
 }
+function roundBtn(x, y, r, label, on, fn) {
+  ctx.fillStyle = on ? 'rgba(120,180,70,0.85)' : 'rgba(16,22,12,0.72)';
+  circle(x, y, r);
+  ctx.strokeStyle = on ? '#d6ffb0' : 'rgba(160,200,110,0.55)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
+  txt(label, x, y + 4, label.length > 2 ? 10 : 15, '#e7f5c9', 'center');
+  hudButtons.push({ x: x - r, y: y - r, w: r * 2, h: r * 2, fn });
+}
 
 function drawHUD() {
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  HS = hudScale();
+  const LW = VW / HS, LH = VH / HS;
+  ctx.setTransform(DPR * HS, 0, 0, DPR * HS, 0, 0);
   hudButtons = [];
   const s = G.sarge;
   // top-left: mission
   const left = G.bunkers.filter(b => !b.dead).length;
   panel(12, 12, 300, 62);
   txt(`Mission ${G.idx + 1}: ${G.L.name}`, 24, 34, 15, '#e7f5c9');
-  let obj = left ? `Bunkers remaining: ${left}/${G.bunkers.length}` : (G.boss && !G.boss.dead ? 'Defeat the Tan Overlord!' : 'Area secured!');
+  const obj = left ? `Bunkers remaining: ${left}/${G.bunkers.length}` : (G.boss && !G.boss.dead ? 'Defeat the Tan Overlord!' : 'Area secured!');
   txt(obj, 24, 56, 13, left ? '#ffd76a' : '#ff8a6a', 'left', false);
-  const wv = Math.ceil(G.waveT);
-  if (left) txt(`Next wave ${wv}s`, 300, 56, 12, '#c9d8b0', 'right', false);
+  if (left) txt(`Next wave ${Math.ceil(G.waveT)}s`, 300, 56, 12, '#c9d8b0', 'right', false);
 
   // top-right: resources
-  panel(VW - 232, 12, 220, 62);
-  ctx.fillStyle = '#6fd13a'; circle(VW - 210, 36, 9); txt('P', VW - 210, 40, 11, '#1f3d0e', 'center');
-  txt(`${Math.floor(G.plastic)} plastic`, VW - 194, 41, 16, '#d9f7b5');
-  txt(`Squad ${squad().length}/${MAX_SQUAD}${G.sel.size ? '  (' + G.sel.size + ' selected)' : ''}`, VW - 222, 62, 12, '#c9d8b0', 'left', false);
-  for (let i = 0; i < G.lives; i++) { ctx.fillStyle = '#79b347'; ctx.beginPath(); ctx.arc(VW - 30 - i * 18, 62, 7, Math.PI, 0); ctx.fill(); ctx.fillRect(VW - 39 - i * 18, 61, 18, 3); }
+  panel(LW - 232, 12, 220, 62);
+  ctx.fillStyle = '#6fd13a'; circle(LW - 210, 36, 9); txt('P', LW - 210, 40, 11, '#1f3d0e', 'center');
+  txt(`${Math.floor(G.plastic)} plastic`, LW - 194, 41, 16, '#d9f7b5');
+  txt(`Squad ${squad().length}/${MAX_SQUAD}${G.sel.size ? '  (' + G.sel.size + ' sel.)' : ''}`, LW - 222, 62, 12, '#c9d8b0', 'left', false);
+  for (let i = 0; i < G.lives; i++) { ctx.fillStyle = '#79b347'; ctx.beginPath(); ctx.arc(LW - 30 - i * 18, 62, 7, Math.PI, 0); ctx.fill(); ctx.fillRect(LW - 39 - i * 18, 61, 18, 3); }
 
   // bottom-left: Sarge
-  const bx = 12, by = VH - 104;
+  const bx = 12, by = LH - 104;
   panel(bx, by, 300, 92);
   txt('SARGE', bx + 12, by + 22, 13, '#ffd76a');
   hpBarHUD(bx + 70, by + 12, 218, 12, s.dead ? 0 : s.hp / s.maxHp);
@@ -1349,30 +1438,44 @@ function drawHUD() {
     const x = bx + 12 + i * 70, y = by + 34, w = 64, h = 48, on = s.slot === i;
     ctx.fillStyle = on ? 'rgba(120,180,70,0.45)' : 'rgba(255,255,255,0.06)'; rrect(x, y, w, h, 6); ctx.fill();
     if (on) { ctx.strokeStyle = '#b8ff7a'; ctx.lineWidth = 2; ctx.stroke(); }
-    txt(String(i + 1), x + 6, y + 13, 10, '#c9d8b0', 'left', false);
+    if (!touchMode) txt(String(i + 1), x + 6, y + 13, 10, '#c9d8b0', 'left', false);
     txt(SARGE_SLOTS[i].name, x + w / 2, y + 28, 12, on ? '#fff' : '#cfd9be', 'center');
     const am = s.ammo[i];
     txt(am === Infinity ? '∞' : String(Math.floor(am)), x + w / 2, y + 43, 12, am === 0 ? '#ff6a5a' : '#ffd76a', 'center');
     hudButtons.push({ x, y, w, h, fn: () => { s.slot = i; } });
   }
 
-  // bottom-center: recruit
-  const bw = 112, gap = 8, total = RECRUITS.length * bw + (RECRUITS.length - 1) * gap;
+  // recruit buttons
   const mm = minimapRect();
-  let rx = Math.max(324, VW / 2 - total / 2);
-  if (rx + total > mm.x - 10) rx = Math.max(324, mm.x - 10 - total);
-  const ry = VH - 66;
-  if (rx + total < mm.x) {
-    txt('RECRUIT AT HQ', rx, ry - 8, 11, '#c9d8b0', 'left', true);
-    RECRUITS.forEach((t, i) => {
-      const T = TYPES[t], x = rx + i * (bw + gap), afford = G.plastic >= T.cost && !G.hq.dead;
-      panel(x, ry, bw, 52);
-      if (!afford) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; rrect(x, ry, bw, 52, 8); ctx.fill(); }
-      drawSoldier({ x: x + 22, y: ry + 26, r: 11, a: -Math.PI / 2, moving: false, anim: 0 }, 'g', T.weapon, false);
-      txt(T.name, x + 40, ry + 21, 13, afford ? '#e7f5c9' : '#8a957a');
-      txt(`[${T.key}]  ${T.cost}`, x + 40, ry + 40, 12, afford ? '#9ef06a' : '#7a8a6a', 'left', false);
-      hudButtons.push({ x, y: ry, w: bw, h: 52, fn: () => recruit(t) });
-    });
+  const recruitBtn = (t, x, y, bw) => {
+    const T = TYPES[t], afford = G.plastic >= T.cost && !G.hq.dead;
+    panel(x, y, bw, 52);
+    if (!afford) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; rrect(x, y, bw, 52, 8); ctx.fill(); }
+    drawSoldier({ x: x + 22, y: y + 26, r: 11, a: -Math.PI / 2, moving: false, anim: 0 }, 'g', T.weapon, false);
+    txt(T.name, x + 40, y + 21, 13, afford ? '#e7f5c9' : '#8a957a');
+    txt(touchMode ? `${T.cost} plastic` : `[${T.key}]  ${T.cost}`, x + 40, y + 40, 12, afford ? '#9ef06a' : '#7a8a6a', 'left', false);
+    hudButtons.push({ x, y, w: bw, h: 52, fn: () => recruit(t) });
+  };
+  if (touchMode) {
+    const y0 = 96;
+    txt('RECRUIT', 14, y0 - 6, 11, '#c9d8b0');
+    RECRUITS.forEach((t, i) => recruitBtn(t, 12, y0 + i * 58, 124));
+    // squad command buttons down the right edge
+    const cx = LW - 42, cy0 = Math.max(mm.y + mm.h + 50, LH / 2 - 110);
+    roundBtn(cx, cy0, 28, 'ORDER', commandMode, () => { commandMode = !commandMode; sfx('order'); });
+    roundBtn(cx, cy0 + 66, 28, 'FOLLOW', false, orderFollow);
+    roundBtn(cx, cy0 + 132, 28, 'GUARD', false, orderHold);
+    roundBtn(cx - 66, cy0, 22, 'II', false, () => { state = 'paused'; moveStick = aimStick = null; });
+    roundBtn(cx - 66, cy0 + 56, 22, '?', showHelp, () => { showHelp = !showHelp; });
+  } else {
+    const bw = 112, gap = 8, total = RECRUITS.length * bw + (RECRUITS.length - 1) * gap;
+    let rx = Math.max(324, LW / 2 - total / 2);
+    if (rx + total > mm.x - 10) rx = Math.max(324, mm.x - 10 - total);
+    const ry = LH - 66;
+    if (rx + total < mm.x) {
+      txt('RECRUIT AT HQ', rx, ry - 8, 11, '#c9d8b0', 'left', true);
+      RECRUITS.forEach((t, i) => recruitBtn(t, rx + i * (bw + gap), ry, bw));
+    }
   }
 
   // minimap
@@ -1393,9 +1496,10 @@ function drawHUD() {
 
   // boss bar
   if (G.boss && !G.boss.dead) {
-    const w = Math.min(460, VW - 680 > 200 ? VW - 680 : VW * 0.5), x = VW / 2 - w / 2, y = 18;
+    const room = LW - 680;
+    const w = room > 200 ? Math.min(460, room) : Math.min(460, LW * 0.5), x = LW / 2 - w / 2, y = room > 200 ? 18 : 84;
     panel(x - 10, y - 6, w + 20, 46);
-    txt('TAN OVERLORD' + (G.boss.shield ? '  —  SHIELDED' : ''), VW / 2, y + 12, 13, G.boss.shield ? '#7fe8ff' : '#ffcf33', 'center');
+    txt('TAN OVERLORD' + (G.boss.shield ? '  —  SHIELDED' : ''), LW / 2, y + 12, 13, G.boss.shield ? '#7fe8ff' : '#ffcf33', 'center');
     ctx.fillStyle = '#300'; ctx.fillRect(x, y + 20, w, 12);
     ctx.fillStyle = G.boss.shield ? '#5fb8cc' : '#d43a2a'; ctx.fillRect(x, y + 20, w * G.boss.hp / G.boss.maxHp, 12);
   }
@@ -1404,21 +1508,38 @@ function drawHUD() {
   if (G.banner) {
     const b = G.banner, a = Math.min(1, b.t * 2, (b.max - b.t) * 4 + 0.2);
     ctx.globalAlpha = a;
-    if (b.title) txt(b.title, VW / 2, VH * 0.28, 38, '#f2ffd9', 'center');
-    if (b.sub) txt(b.sub, VW / 2, VH * 0.28 + (b.title ? 34 : 0), 18, '#ffe9a0', 'center');
+    if (b.title) txt(b.title, LW / 2, LH * 0.28, 38, '#f2ffd9', 'center');
+    if (b.sub) txt(b.sub, LW / 2, LH * 0.28 + (b.title ? 34 : 0), 18, '#ffe9a0', 'center');
     ctx.globalAlpha = 1;
   }
-  txt('H: help   P: pause   M: ' + (muted ? 'unmute' : 'mute'), 14, 92, 11, 'rgba(230,245,210,0.6)', 'left', false);
-  if (showHelp) drawHelp();
+  if (commandMode) txt('Tap the battlefield to move your squad, or tap an enemy to attack it', LW / 2, LH * 0.28 + 70, 16, '#b8ff7a', 'center');
+  if (!touchMode) txt('H: help   P: pause   M: ' + (muted ? 'unmute' : 'mute'), 14, 92, 11, 'rgba(230,245,210,0.6)', 'left', false);
+  else if (VH > VW) txt('Tip: turn your phone sideways for a bigger view', LW / 2, LH - 120, 14, '#ffe9a0', 'center');
+  if (showHelp) drawHelp(LW, LH);
+
+  // virtual sticks (screen space)
+  if (touchMode) {
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    for (const st of [moveStick, aimStick]) {
+      if (!st) continue;
+      ctx.fillStyle = 'rgba(255,255,255,0.12)'; circle(st.sx, st.sy, STICK_R);
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(st.sx, st.sy, STICK_R, 0, TAU); ctx.stroke();
+      ctx.fillStyle = st === aimStick ? 'rgba(255,190,90,0.6)' : 'rgba(184,255,122,0.55)'; circle(st.x, st.y, 26);
+    }
+  }
 }
 function hpBarHUD(x, y, w, h, f) {
   ctx.fillStyle = '#2a1a14'; rrect(x, y, w, h, 4); ctx.fill();
   ctx.fillStyle = f > 0.5 ? '#6fd13a' : f > 0.25 ? '#e8c23a' : '#e04a3a'; rrect(x, y, Math.max(0, w * f), h, 4); ctx.fill();
 }
-function hudClick(x, y) {
+function hudClick(sx, sy) {
+  const x = sx / HS, y = sy / HS;
   for (const b of hudButtons) if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) { b.fn(); return true; }
   const mm = minimapRect();
-  if (x >= mm.x && x <= mm.x + mm.w && y >= mm.y && y <= mm.y + mm.h) return true;
+  if (x >= mm.x && x <= mm.x + mm.w && y >= mm.y && y <= mm.y + mm.h) {
+    if (touchMode) { orderAt((x - mm.x) / mm.w * WORLD_W, (y - mm.y) / mm.h * WORLD_H); commandMode = false; }
+    return true;
+  }
   return false;
 }
 
@@ -1440,13 +1561,30 @@ const HELP = [
   ['', 'Bunkers keep spawning minions — take them out!'],
   ['', 'Sarge slowly heals when out of combat. Medics heal everyone.'],
 ];
-function drawHelp() {
-  const w = Math.min(560, VW - 40), h = HELP.length * 24 + 40, x = VW / 2 - w / 2, y = VH / 2 - h / 2;
+const HELP_TOUCH = [
+  ['SARGE (you)', ''],
+  ['Left thumb', 'Drag anywhere on the left half to move'],
+  ['Right thumb', 'Drag on the right half to aim & fire'],
+  ['', 'Aim assist locks onto enemies near your aim.'],
+  ['Weapon boxes', 'Tap to switch Rifle · Bazooka · Flamer · Grenade'],
+  ['SQUAD', ''],
+  ['Recruit buttons', 'Spend plastic to get new soldiers at HQ'],
+  ['ORDER', 'Then tap the ground to send the squad there,'],
+  ['', 'or tap an enemy to make them all attack it'],
+  ['Minimap', 'Tap it to send the squad anywhere'],
+  ['FOLLOW / GUARD', 'Squad follows Sarge / holds its spot'],
+  ['TIPS', ''],
+  ['', 'Kill tan troops & smash crates for plastic and ammo.'],
+  ['', 'Bunkers keep spawning minions — take them out!'],
+];
+function drawHelp(LW, LH) {
+  const list = touchMode ? HELP_TOUCH : HELP;
+  const w = Math.min(560, LW - 40), h = list.length * 24 + 40, x = LW / 2 - w / 2, y = LH / 2 - h / 2;
   panel(x, y, w, h);
-  HELP.forEach(([k, v], i) => {
+  list.forEach(([k, v], i) => {
     const yy = y + 32 + i * 24;
     if (!v) { txt(k, x + 20, yy, 14, '#ffd76a'); return; }
-    txt(k, x + 20, yy, 13, '#e7f5c9'); txt(v, x + (k ? 200 : 20), yy, 13, '#c9d8b0', 'left', false);
+    txt(k, x + 20, yy, 13, '#e7f5c9'); txt(v, x + (k || touchMode ? 180 : 20), yy, 13, '#c9d8b0', 'left', false);
   });
 }
 
@@ -1473,17 +1611,17 @@ function drawTitle(dt) {
   txt('PLASTIC FRONT', 0, 0, Math.min(84, VW / 9), '#d6ffb0', 'center');
   ctx.restore();
   txt('Green vs. Tan', VW / 2, VH * 0.38 + 44, 24, '#ffe08a', 'center');
-  txt('Lead your little green army men against the evil Tan Overlord and his minions.', VW / 2, VH * 0.38 + 84, 16, '#e7f5c9', 'center', false);
-  txt('WASD move · Mouse aim/fire · 1-4 weapons · Z/X/C/V recruit · Right-click command squad · H help', VW / 2, VH * 0.38 + 112, 13, '#c9d8b0', 'center', false);
-  if (Math.floor(titleT * 2) % 2 === 0) txt('Click or press Enter to deploy', VW / 2, VH * 0.38 + 160, 22, '#fff', 'center');
-  txt('Best with keyboard + mouse', VW / 2, VH - 20, 12, 'rgba(230,245,210,0.55)', 'center', false);
+  txt(VW < 700 ? 'Lead the green army men against the Tan Overlord!' : 'Lead your little green army men against the evil Tan Overlord and his minions.', VW / 2, VH * 0.38 + 84, VW < 700 ? 14 : 16, '#e7f5c9', 'center', false);
+  txt(touchMode ? 'Left thumb moves · Right thumb aims & fires · Tap buttons to recruit and command' : 'WASD move · Mouse aim/fire · 1-4 weapons · Z/X/C/V recruit · Right-click command squad · H help', VW / 2, VH * 0.38 + 112, VW < 700 ? 11 : 13, '#c9d8b0', 'center', false);
+  if (Math.floor(titleT * 2) % 2 === 0) txt(touchMode ? 'Tap to deploy' : 'Click or press Enter to deploy', VW / 2, VH * 0.38 + 160, 22, '#fff', 'center');
+  txt('Keyboard + mouse, or touch (landscape works best)', VW / 2, VH - 20, 12, 'rgba(230,245,210,0.55)', 'center', false);
 }
 function drawOverlay(title, lines, prompt, col) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.fillStyle = 'rgba(10,14,8,0.72)'; ctx.fillRect(0, 0, VW, VH);
   txt(title, VW / 2, VH * 0.35, Math.min(60, VW / 12), col, 'center');
-  lines.forEach((l, i) => txt(l, VW / 2, VH * 0.35 + 50 + i * 28, 18, '#e7f5c9', 'center', false));
-  if (prompt && Math.floor(performance.now() / 500) % 2 === 0) txt(prompt, VW / 2, VH * 0.35 + 70 + lines.length * 28, 20, '#fff', 'center');
+  lines.forEach((l, i) => txt(l, VW / 2, VH * 0.35 + 50 + i * 28, VW < 700 ? 13 : 18, '#e7f5c9', 'center', false));
+  if (prompt && Math.floor(performance.now() / 500) % 2 === 0) txt(touchMode ? prompt.replace('Click', 'Tap') : prompt, VW / 2, VH * 0.35 + 70 + lines.length * 28, 20, '#fff', 'center');
 }
 function onClickOverlay() {
   if (state === 'title') { carry = { plastic: 120, squad: ['rifle', 'rifle'] }; newLevel(0); }
@@ -1503,7 +1641,7 @@ function frame(now) {
     if (state === 'play') update(dt);
     drawWorld(); drawHUD();
     const mins = Math.floor(G.time / 60), secs = String(Math.floor(G.time % 60)).padStart(2, '0');
-    if (state === 'paused') drawOverlay('PAUSED', ['Press P or Esc to resume'], null, '#d6ffb0');
+    if (state === 'paused') drawOverlay('PAUSED', [touchMode ? 'Tap to resume' : 'Press P or Esc to resume'], null, '#d6ffb0');
     else if (state === 'levelwin') drawOverlay('MISSION COMPLETE', [`Tan troops destroyed: ${G.kills}   ·   Squad lost: ${G.lost}   ·   Time ${mins}:${secs}`, `Surviving squad members and plastic carry over (+100 bonus plastic).`, `Next: ${LEVELS[G.idx + 1].name}`], 'Click to continue', '#b8ff7a');
     else if (state === 'over') drawOverlay('MISSION FAILED', [G.reason || '', 'The tan menace grows stronger...'], 'Click to retry mission', '#ff7a5a');
     else if (state === 'victory') drawOverlay('VICTORY!', ['The Tan Overlord is melted down into a puddle.', `Final mission: ${G.kills} tan troops destroyed in ${mins}:${secs}.`, 'The backyard is safe — for now.'], 'Click to return to the title', '#ffe08a');
